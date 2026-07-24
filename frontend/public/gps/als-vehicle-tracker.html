@@ -1,0 +1,2384 @@
+﻿<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Giám sát xe tự động</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  :root {
+    --bg: #0d1117; --surface: #161b22; --surface2: #21262d;
+    --border: #30363d; --text: #e6edf3; --text2: #8b949e;
+    --blue: #388bfd; --green: #3fb950; --red: #f85149;
+    --yellow: #d29922; --purple: #bc8cff; --orange: #f0883e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; font-size: 14px; min-height: 100vh; }
+
+  /* HEADER */
+  header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 5px 14px; display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; min-height: 34px; }
+  .logo { display: none; align-items: center; gap: 10px; }
+  .logo-icon { width: 36px; height: 36px; background: linear-gradient(135deg, #388bfd, #bc8cff); border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 18px; }
+  .logo h1 { font-size: 16px; font-weight: 700; }
+  .logo p { font-size: 11px; color: var(--text2); }
+  .status-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .status-dot { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
+  .dot.red { background: var(--red); animation: none; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+  .btn { padding: 5px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface2); color: var(--text); cursor: pointer; font-size: 12px; transition: all .2s; }
+  .btn:hover { border-color: var(--blue); color: var(--blue); }
+  .btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .btn.primary:hover { background: #58a6ff; }
+
+  /* LAYOUT */
+  .container { display: grid; grid-template-columns: 320px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); gap: 0; height: calc(100vh - 34px); min-height: 0; overflow: hidden; }
+  .sidebar { min-width: 0; min-height: 0; border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+  .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+
+  /* TABS */
+  .tabs { display: flex; border-bottom: 1px solid var(--border); background: var(--surface); }
+  .tab { padding: 7px 12px; cursor: pointer; font-size: 11px; color: var(--text2); border-bottom: 2px solid transparent; transition: all .2s; white-space: nowrap; }
+  .tab.active { color: var(--blue); border-bottom-color: var(--blue); }
+  .tab:hover:not(.active) { color: var(--text); }
+
+  /* MAP AREA */
+  .map-wrap { flex: 1; min-height: 0; position: relative; background: #0d1f3c; overflow: hidden; }
+  #map-canvas { width: 100%; height: 100%; min-height: 0; background: #0d1f3c; }
+  .leaflet-container { background: #0d1f3c; font-family: 'Segoe UI', system-ui, sans-serif; }
+  .leaflet-control-attribution { background: rgba(22,27,34,.82) !important; color: var(--text2) !important; }
+  .leaflet-control-attribution a { color: var(--blue) !important; }
+  .leaflet-popup-content-wrapper, .leaflet-popup-tip { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+  .leaflet-popup-content { margin: 10px 12px; font-size: 12px; line-height: 1.45; }
+  .vehicle-marker-wrap { display: flex; align-items: center; gap: 3px; filter: drop-shadow(0 4px 7px rgba(0,0,0,.38)); }
+  .vehicle-car { position: relative; width: 20px; height: 12px; border: 1.5px solid #0d1117; border-radius: 5px 7px 7px 5px; box-shadow: inset 0 1px 0 rgba(255,255,255,.28), 0 0 0 1px rgba(255,255,255,.16); }
+  .vehicle-car::before { content: ''; position: absolute; left: 4px; top: 2px; width: 7px; height: 3px; border-radius: 2px; background: rgba(255,255,255,.82); }
+  .vehicle-car::after { content: ''; position: absolute; right: -4px; top: 3px; border-left: 5px solid currentColor; border-top: 3px solid transparent; border-bottom: 3px solid transparent; filter: brightness(1.08); }
+  .vehicle-wheel { position: absolute; bottom: -4px; width: 4px; height: 4px; border-radius: 50%; background: #0d1117; border: 1px solid rgba(255,255,255,.7); }
+  .vehicle-wheel.front { right: 3px; }
+  .vehicle-wheel.back { left: 3px; }
+  .vehicle-light { position: absolute; right: 1px; top: 4px; width: 2px; height: 2px; border-radius: 50%; background: rgba(255,255,255,.9); }
+  .vehicle-plate-label { background: #bfe7ff; color: #0d1117; border: 1px solid rgba(13,17,23,.25); border-left: 2px solid currentColor; border-radius: 4px; padding: 2px 5px; font-size: 9px; font-weight: 900; line-height: 1.05; white-space: nowrap; font-family: Consolas, 'Segoe UI', monospace; letter-spacing: 0; box-shadow: 0 1px 3px rgba(13,17,23,.22); }
+  .als-zone-label { background: rgba(13,17,23,.75); border: 1px solid rgba(63,185,80,.65); color: #3fb950; border-radius: 6px; font-weight: 700; font-size: 11px; box-shadow: none; }
+  .saved-zone-label { background: rgba(13,17,23,.78); border: 1px solid rgba(88,166,255,.72); color: #e6edf3; border-radius: 6px; font-weight: 700; font-size: 11px; box-shadow: none; }
+  .map-overlay { position: absolute; top: 12px; right: 12px; display: flex; flex-direction: column; gap: 8px; z-index: 500; }
+  .zone-shortcuts { position: absolute; top: 12px; left: 12px; z-index: 500; display: flex; gap: 6px; flex-wrap: wrap; max-width: calc(100% - 90px); }
+  .zone-chip { border: 1px solid var(--border); background: rgba(22,27,34,.92); color: var(--text); border-radius: 6px; padding: 6px 9px; font-size: 11px; cursor: pointer; }
+  .zone-chip:hover { border-color: var(--blue); color: var(--blue); }
+  .map-hint { position: absolute; bottom: 12px; right: 12px; z-index: 500; background: rgba(22,27,34,.9); border: 1px solid var(--border); color: var(--text2); border-radius: 8px; padding: 7px 10px; font-size: 11px; }
+  .map-btn { width: 34px; height: 34px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 16px; }
+  .map-btn:hover { border-color: var(--blue); }
+  .map-legend { position: absolute; bottom: 12px; left: 12px; background: rgba(22,27,34,.9); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; }
+  .legend-item { display: flex; align-items: center; gap: 8px; font-size: 11px; margin-bottom: 4px; }
+  .legend-item:last-child { margin-bottom: 0; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 50%; }
+
+  /* STATS */
+  .stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 0; flex: 0 0 auto; border-bottom: 1px solid var(--border); }
+  .stat-card { padding: 7px 16px; border-right: 1px solid var(--border); }
+  .stat-card:last-child { border-right: none; }
+  .stat-zone-cards { display: contents; }
+  .stat-label { font-size: 10.5px; color: var(--text2); margin-bottom: 2px; }
+  .stat-value { font-size: 18px; font-weight: 700; line-height: 1.1; }
+  .stat-value.green { color: var(--green); }
+  .stat-value.blue { color: var(--blue); }
+  .stat-value.yellow { color: var(--yellow); }
+  .stat-value.red { color: var(--red); }
+  .stat-sub { font-size: 10.5px; color: var(--text2); margin-top: 1px; }
+
+  /* SIDEBAR CONTENT */
+  .sidebar-section { padding: 7px 8px; border-bottom: 1px solid var(--border); }
+  .section-title { font-size: 11px; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: .6px; margin-bottom: 10px; }
+  .vehicle-list { flex: 1; min-height: 0; overflow-y: auto; padding: 6px 8px; }
+  .vehicle-item { background: var(--surface); border: 1px solid var(--border); border-radius: 7px; padding: 7px 9px; margin-bottom: 6px; cursor: pointer; transition: all .2s; }
+  .vehicle-item:hover, .vehicle-item.active { border-color: var(--blue); background: rgba(56,139,253,.08); }
+  .vehicle-item.in-zone { border-left: 3px solid var(--green); }
+  .vehicle-item.approaching { border-left: 3px solid var(--yellow); }
+  .vehicle-item.out-zone { border-left: 3px solid var(--text2); }
+  .vi-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+  .vi-plate { font-weight: 700; font-size: 13px; font-family: monospace; }
+  .vi-badge { font-size: 10px; padding: 2px 7px; border-radius: 10px; font-weight: 600; }
+  .badge-green { background: rgba(63,185,80,.2); color: var(--green); }
+  .badge-yellow { background: rgba(210,153,34,.2); color: var(--yellow); }
+  .badge-gray { background: rgba(139,148,158,.2); color: var(--text2); }
+  .vi-info { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 5px; font-size: 10.5px; color: var(--text2); }
+  .vi-info span { display: flex; align-items: center; gap: 4px; }
+
+  /* LOG */
+  .log-panel { flex: 1; overflow-y: auto; padding: 12px; }
+  .log-item { display: flex; gap: 10px; padding: 8px 10px; border-radius: 6px; margin-bottom: 6px; background: var(--surface); border: 1px solid var(--border); font-size: 12px; }
+  .log-item.success { border-left: 3px solid var(--green); }
+  .log-item.warning { border-left: 3px solid var(--yellow); }
+  .log-item.info { border-left: 3px solid var(--blue); }
+  .log-icon { font-size: 14px; flex-shrink: 0; margin-top: 1px; }
+  .log-time { color: var(--text2); font-size: 10px; margin-top: 2px; }
+
+  /* CONFIG PANEL */
+  .config-panel { padding: 16px; overflow-y: auto; }
+  .form-group { margin-bottom: 16px; }
+  .form-label { font-size: 11px; color: var(--text2); margin-bottom: 6px; display: block; text-transform: uppercase; letter-spacing: .4px; }
+  .form-input { width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; color: var(--text); font-size: 12px; outline: none; transition: border .2s; }
+  .secret-input { -webkit-text-security: disc; font-family: Consolas, 'Segoe UI', monospace; }
+  .form-input:focus { border-color: var(--blue); }
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .toggle-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .toggle-label { font-size: 13px; }
+  .toggle-sub { font-size: 11px; color: var(--text2); }
+  .toggle { width: 40px; height: 22px; background: var(--border); border-radius: 11px; position: relative; cursor: pointer; transition: background .2s; }
+  .toggle.on { background: var(--green); }
+  .toggle::after { content: ''; position: absolute; width: 16px; height: 16px; background: #fff; border-radius: 50%; top: 3px; left: 3px; transition: left .2s; }
+  .toggle.on::after { left: 21px; }
+  .provider-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+  .provider-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+  .provider-name { font-weight: 600; font-size: 13px; }
+  .provider-status { font-size: 11px; color: var(--green); }
+  .provider-status.err { color: var(--red); }
+  .provider-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+  .zone-action { display: flex; align-items: center; gap: 6px; }
+
+  /* NOTIFICATION MODAL */
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.7); z-index: 100; align-items: center; justify-content: center; }
+  .modal-overlay.open { display: flex; }
+  .modal { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 24px; width: 420px; max-width: 95vw; }
+  .modal h2 { font-size: 16px; margin-bottom: 16px; }
+  .zalo-preview { background: #0068ff; color: #fff; border-radius: 12px 12px 12px 4px; padding: 12px 16px; font-size: 13px; line-height: 1.5; max-width: 280px; margin: 12px 0 16px; }
+  .modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+
+  /* CANVAS SVG MAP */
+  .zone-ring { animation: ring-pulse 2s infinite; }
+  @keyframes ring-pulse { 0%,100%{opacity:.6;r:60px} 50%{opacity:.2;r:80px} }
+  .vehicle-marker { transition: all .5s; }
+
+  /* SCROLLBAR */
+  ::-webkit-scrollbar { width: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  .tab-content { display: none; }
+  .tab-content.active { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
+
+  @media (max-width: 768px) {
+    .container { grid-template-columns: 1fr; grid-template-rows: auto; height: auto; }
+    .sidebar { height: 50vh; border-right: none; border-bottom: 1px solid var(--border); }
+    .stats-row { grid-template-columns: repeat(2,1fr); }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">
+    <div class="logo-icon">🚚</div>
+    <div>
+      <h1></h1>
+      <p></p>
+    </div>
+  </div>
+  <div class="status-bar">
+    <div class="status-dot"><div class="dot"></div> Đang theo dõi</div>
+    <div class="status-dot" id="zalo-status"><div class="dot"></div> Zalo OA kết nối</div>
+    <button class="btn" onclick="openConfig()">⚙ Cấu hình</button>
+    <button class="btn primary" onclick="manualRefresh()">↻ Làm mới</button>
+  </div>
+</header>
+
+<div class="container">
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="tabs">
+      <div class="tab active" onclick="switchSideTab('vehicles',this)">🚛 Xe (live)</div>
+      <div class="tab" onclick="switchSideTab('log',this)">📋 Nhật ký</div>
+    </div>
+
+    <!-- VEHICLES TAB -->
+    <div id="st-vehicles" class="tab-content active" style="display:flex;flex-direction:column;overflow:hidden;">
+      <div class="sidebar-section">
+        <input class="form-input" id="vehicle-search" name="vehicle-search-disabled" value="" autocomplete="new-password" spellcheck="false" placeholder="🔍 Tìm biển số, nhà xe..." oninput="filterVehicles(this.value)" style="margin:0">
+        <label style="display:flex;align-items:center;gap:6px;margin-top:6px;color:var(--text2);font-size:11px;line-height:1.2;cursor:pointer">
+          <input id="planned-only" type="checkbox" checked onchange="togglePlannedOnly(this.checked)">
+          Chỉ xem xe trong kế hoạch vận chuyển
+        </label>
+      </div>
+      <div class="vehicle-list" id="vehicle-list"></div>
+    </div>
+
+    <!-- LOG TAB -->
+    <div id="st-log" class="tab-content" style="display:none;flex-direction:column;overflow:hidden;">
+      <div class="log-panel" id="log-panel"></div>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div class="main">
+    <!-- STATS -->
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="stat-label">Trong vùng ALS</div>
+        <div class="stat-value green" id="stat-in">0</div>
+        <div class="stat-sub">xe đang trong khu vực</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Đang tiếp cận</div>
+        <div class="stat-value yellow" id="stat-approach">0</div>
+        <div class="stat-sub">< 2km từ vùng</div>
+      </div>
+      <div id="saved-zone-stat-cards" class="stat-zone-cards"></div>
+      <div class="stat-card">
+        <div class="stat-label">Zalo đã gửi</div>
+        <div class="stat-value blue" id="stat-sent">0</div>
+        <div class="stat-sub">hôm nay</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Nhà xe kết nối</div>
+        <div class="stat-value" id="stat-providers">3</div>
+        <div class="stat-sub">API đang hoạt động</div>
+      </div>
+    </div>
+
+    <!-- MAP TABS -->
+    <div class="tabs">
+      <div class="tab active" onclick="switchMainTab('map',this)">🗺 Bản đồ thời gian thực</div>
+      <div class="tab" onclick="switchMainTab('config',this)">🔌 Nhà xe & API</div>
+      <div class="tab" onclick="switchMainTab('zones',this)">📍 Vùng địa lý</div>
+      <div class="tab" onclick="switchMainTab('zalo',this)">💬 Zalo OA</div>
+    </div>
+
+    <!-- MAP -->
+    <div id="mt-map" class="tab-content active" style="display:flex;flex:1;overflow:hidden;">
+      <div class="map-wrap">
+        <div id="map-canvas"></div>
+        <div class="map-overlay">
+          <div class="map-btn" title="Zoom in" onclick="mapZoom(1.2)">+</div>
+          <div class="map-btn" title="Zoom out" onclick="mapZoom(0.8)">−</div>
+          <div class="map-btn" title="Reset" onclick="mapReset()">⌂</div>
+        </div>
+        <div class="zone-shortcuts" id="zone-shortcuts"></div>
+        <div class="map-legend">
+          <div class="legend-item"><div class="legend-dot" style="background:#3fb950"></div> Trong vùng ALS</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#d29922"></div> Đang tiếp cận</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#58a6ff"></div> Vùng TCT đã lưu</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#8b949e"></div> Ngoài vùng</div>
+          <div class="legend-item"><div class="legend-dot" style="background:#f85149"></div> Xe tải nặng / ưu tiên</div>
+        </div>
+        <div class="map-hint">Chuột phải trên bản đồ để thêm vùng TCT</div>
+      </div>
+    </div>
+
+    <!-- PROVIDERS CONFIG -->
+    <div id="mt-config" class="tab-content" style="display:none;flex:1;overflow:auto;">
+      <div class="config-panel">
+        <div class="section-title" style="margin-bottom:14px">🔌 Kết nối API nhà xe</div>
+        <div id="providers-list"></div>
+        <button class="btn primary" style="margin-top:8px" onclick="addProvider()">+ Thêm nhà xe</button>
+        <div style="margin-top:24px">
+          <div class="section-title" style="margin-bottom:10px">⏱ Polling interval</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Tần suất gọi API (giây)</label>
+              <input class="form-input" id="poll-interval" value="30">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Timeout API (giây)</label>
+              <input class="form-input" id="api-timeout" value="10">
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ZONES CONFIG -->
+    <div id="mt-zones" class="tab-content" style="display:none;flex:1;overflow:auto;">
+      <div class="config-panel">
+        <div id="als-zone-config">
+          <div class="section-title" style="margin-bottom:10px">📍 Cấu hình vùng địa lý ALS</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Vĩ độ tâm (Lat)</label>
+              <input class="form-input" id="zone-lat" value="21.077013">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Kinh độ tâm (Lng)</label>
+              <input class="form-input" id="zone-lng" value="105.97963">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Bán kính vùng (m)</label>
+              <input class="form-input" id="zone-radius" value="500">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Vùng cảnh báo sớm (m)</label>
+              <input class="form-input" id="zone-warn" value="2000">
+            </div>
+          </div>
+          <button class="btn primary" onclick="saveZone()">💾 Lưu cấu hình vùng</button>
+        </div>
+        <div id="saved-zone-config-section" style="margin-top:24px">
+          <div class="section-title" style="margin-bottom:10px">📌 Cấu hình vùng TCT đã lưu</div>
+          <div id="saved-zones-config"></div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <button class="btn primary" onclick="saveSavedZones()">💾 Lưu các vùng TCT</button>
+            <button class="btn" onclick="addSavedZone()">+ Thêm vùng TCT</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ZALO CONFIG -->
+    <div id="mt-zalo" class="tab-content" style="display:none;flex:1;overflow:auto;">
+      <div class="config-panel">
+        <div class="section-title" style="margin-bottom:14px">💬 Zalo Official Account – Cấu hình</div>
+        <div class="form-group">
+          <label class="form-label">Zalo OA Access Token</label>
+          <input class="form-input secret-input" id="zalo-token" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore placeholder="OA Access Token từ Zalo Developer Portal">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Zalo OA ID</label>
+          <input class="form-input" id="zalo-oa-id" placeholder="OA ID của bạn">
+        </div>
+        <div class="section-title" style="margin:14px 0 10px">👤 Người nhận thông báo</div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Kiểu tài khoản nhận</label>
+            <select class="form-input" id="zalo-recipient-type" onchange="updateZaloRecipientFields()">
+              <option value="phone">Số điện thoại Zalo cá nhân</option>
+              <option value="user_id">Zalo User ID</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label" id="zalo-recipient-label">Số điện thoại Zalo cá nhân</label>
+            <input class="form-input" id="zalo-recipient-value" placeholder="VD: 0912345678">
+          </div>
+        </div>
+        <div class="section-title" style="margin:14px 0 10px">📝 Template thông báo</div>
+        <div class="form-group">
+          <label class="form-label">Khi xe vào vùng ALS</label>
+          <textarea class="form-input" id="msg-enter" rows="4" style="resize:vertical">🚛 Thông báo xe đến ALS Đông Hà Nội
+━━━━━━━━━━━━━━━━━
+📋 Biển số: {PLATE}
+🏢 Nhà xe: {PROVIDER}
+⏰ Thời gian: {TIME}
+📍 Vị trí: ALS Đông Hà Nội
+🚀 Vận tốc: {SPEED} km/h
+━━━━━━━━━━━━━━━━━
+✅ Xe đã vào khu vực bốc/dỡ hàng</textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Khi xe tiếp cận (cách 2km)</label>
+          <textarea class="form-input" id="msg-approach" rows="3" style="resize:vertical">⚠️ Xe {PLATE} ({PROVIDER}) đang tiếp cận ALS Đông Hà Nội – dự kiến {ETA} phút nữa</textarea>
+        </div>
+        <div class="toggle-row">
+          <div><div class="toggle-label">Gửi khi vào vùng</div><div class="toggle-sub">Tự động gửi khi xe bước vào vùng ALS</div></div>
+          <div class="toggle on" id="tog-enter" onclick="toggleSetting('tog-enter')"></div>
+        </div>
+        <div class="toggle-row">
+          <div><div class="toggle-label">Gửi cảnh báo tiếp cận</div><div class="toggle-sub">Thông báo khi xe cách 2km</div></div>
+          <div class="toggle on" id="tog-approach" onclick="toggleSetting('tog-approach')"></div>
+        </div>
+        <div class="toggle-row">
+          <div><div class="toggle-label">Chống spam (cooldown 30ph)</div><div class="toggle-sub">Không gửi lại trong vòng 30 phút</div></div>
+          <div class="toggle on" id="tog-cooldown" onclick="toggleSetting('tog-cooldown')"></div>
+        </div>
+        <div style="margin-top:16px;display:flex;gap:10px">
+          <button class="btn primary" onclick="saveZaloConfig()">💾 Lưu cấu hình</button>
+          <button class="btn" onclick="testZalo()">📤 Gửi test</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- NOTIFICATION MODAL -->
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <h2>📤 Zalo thông báo tự động</h2>
+    <div style="font-size:13px;color:var(--text2);margin-bottom:6px">Tin nhắn sẽ được gửi đến:</div>
+    <div style="font-size:13px" id="modal-recipient"></div>
+    <div class="zalo-preview" id="modal-msg"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal()">Hủy</button>
+      <button class="btn primary" onclick="confirmSend()">✓ Gửi ngay</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ============================================================
+// CONFIG & STATE
+// ============================================================
+let ALS_CENTER = { lat: 21.077013, lng: 105.97963 }; // ALSE - Bắc Ninh
+let ZONE_RADIUS_M = 500;
+let WARN_RADIUS_M = 2000;
+let SAVED_TCT_ZONES = [
+  {
+    id: 'noibai',
+    name: 'NoiBai',
+    aliases: ['noibai', 'noi bai', 'noi-bai', 'nội bài'],
+    lat: 21.212137,
+    lng: 105.808189,
+    radiusM: 900,
+    color: '#58a6ff',
+    enabled: true,
+    showShortcut: true
+  },
+  {
+    id: 'jusda',
+    name: 'Jusda',
+    aliases: ['jusda', 'judsa'],
+    lat: 21.156443,
+    lng: 106.179482,
+    radiusM: 700,
+    color: '#bc8cff',
+    enabled: true,
+    showShortcut: true
+  },
+  {
+    id: 'goertek-hap-linh',
+    name: 'Goertek Hạp Lĩnh',
+    aliases: ['goertek hap linh', 'goertek hạp lĩnh', 'goertek'],
+    lat: 21.131393,
+    lng: 106.09584,
+    radiusM: 700,
+    color: '#f0883e',
+    enabled: true,
+    showShortcut: true
+  }
+];
+const MAP_CENTER = { x: 460, y: 235 };
+const MAP_SCALE = 0.008; // pixels per meter
+let zaloSentCount = 0;
+let ZALO_CONFIG = {
+  accessToken: '',
+  oaId: '',
+  recipientType: 'phone',
+  recipientValue: ''
+};
+let notifyCooldowns = {};
+let logItems = [];
+let pendingNotification = null;
+let mapTransform = { scale: 1, tx: 0, ty: 0 };
+let pollTimer = null;
+let providerLogTimer = null;
+let currentFilter = '';
+let lastZoneByVehicleId = {};
+let plannedOnly = true;
+let plannedTripByPlate = new Map();
+let liveMap = null;
+let zoneLayer = null;
+let vehicleLayer = null;
+let vehicleMarkers = new Map();
+let mapCenteredOnce = false;
+const DEFAULT_MAP_ZOOM = 14;
+
+// ============================================================
+// PROVIDERS & API ADAPTERS
+// ============================================================
+let PROVIDERS = [
+  {
+    id: 'tct',
+    name: 'Điện tử TCT',
+    url: 'https://webapi.dientutct.com/api/gps/tracking',
+    apiKey: 'ce1JAQZ9UU',
+    customerCode: '43526_179',
+    method: 'POST',
+    contentType: 'form',
+    adapter: 'tct',
+    status: 'connected',
+    lastMessage: 'Chưa gọi API',
+    vehicleCount: 0,
+    enabled: true,
+    color: '#388bfd'
+  },
+  {
+    id: 'gotrack',
+    name: 'GoTrack GPS',
+    url: '/proxy/gotrack/tracking-vehicles',
+    vehicleListUrl: '/proxy/gotrack/vehicles',
+    historyUrl: '/proxy/gotrack/history-vehicle',
+    apiKey: '78D90170419346F898E49D35C8D602FE',
+    customerCode: '',
+    method: 'GET',
+    contentType: 'query',
+    adapter: 'gotrack',
+    status: 'connected',
+    lastMessage: 'Chưa gọi API',
+    vehicleCount: 0,
+    enabled: true,
+    color: '#f0883e'
+  },
+  {
+    id: 'hungduong',
+    name: 'Hùng Dương GPS',
+    url: '/proxy/hungduong/tracking-vehicles',
+    vehicleListUrl: '/proxy/hungduong/vehicles',
+    historyUrl: '/proxy/hungduong/history-vehicle',
+    apiKey: '29BD88199F08430C88CBF33D1E43E27C',
+    customerCode: '',
+    method: 'GET',
+    contentType: 'query',
+    adapter: 'gotrack',
+    status: 'connected',
+    lastMessage: 'Chưa gọi API',
+    vehicleCount: 0,
+    enabled: true,
+    color: '#3fb950'
+  },
+  {
+    id: 'tng',
+    name: 'TNG',
+    url: '/proxy/etruck/loc',
+    vehicleListUrl: '',
+    historyUrl: '',
+    apiKey: '98a5f0574d5e3fc35265b16d934e48ab',
+    customerCode: 'ALE.100104',
+    method: 'POST',
+    contentType: 'form',
+    adapter: 'etruck',
+    status: 'connected',
+    lastMessage: 'Đã cấu hình API TNG eTruck',
+    vehicleCount: 0,
+    enabled: true,
+    color: '#bc8cff'
+  },
+  {
+    id: 'binhanh-hps',
+    name: 'HPS',
+    url: '/proxy/binhanh/tracking',
+    vehicleListUrl: '',
+    historyUrl: '',
+    apiKey: 'QxUvU-H7nB',
+    customerCode: '70000_90',
+    method: 'POST',
+    contentType: 'form',
+    adapter: 'binhanh',
+    status: 'connected',
+    lastMessage: 'Đã cấu hình API HPS',
+    vehicleCount: 0,
+    enabled: true,
+    color: '#d29922'
+  },
+  {
+    id: 'binhanh-hpl',
+    name: 'HPL',
+    url: '/proxy/binhanh/tracking',
+    vehicleListUrl: '',
+    historyUrl: '',
+    apiKey: '@ckT4lh9N7',
+    customerCode: '7685_36',
+    method: 'POST',
+    contentType: 'form',
+    adapter: 'binhanh',
+    status: 'connected',
+    lastMessage: 'Đã cấu hình API HPL',
+    vehicleCount: 0,
+    enabled: true,
+    color: '#58a6ff'
+  }
+];
+const DEFAULT_PROVIDERS = PROVIDERS.map(p => ({ ...p }));
+let providerDrafts = {};
+
+// ============================================================
+// PERSISTENT CONFIG
+// ============================================================
+function getConfigSnapshot() {
+  return {
+    providers: PROVIDERS.map(p => ({ ...p })),
+    savedZones: SAVED_TCT_ZONES.map(z => ({ ...z })),
+    zalo: { ...ZALO_CONFIG },
+    als: {
+      center: { ...ALS_CENTER },
+      zoneRadiusM: ZONE_RADIUS_M,
+      warnRadiusM: WARN_RADIUS_M
+    }
+  };
+}
+
+function normalizeLoadedProvider(provider, index) {
+  const colors = ['#388bfd', '#f0883e', '#3fb950', '#d29922', '#f85149', '#58a6ff'];
+  return {
+    id: provider.id || `provider-${Date.now()}-${index}`,
+    name: provider.name || 'Nha xe',
+    url: provider.url || '',
+    vehicleListUrl: provider.vehicleListUrl || '',
+    historyUrl: provider.historyUrl || '',
+    apiKey: provider.apiKey || '',
+    customerCode: provider.customerCode || '',
+    method: provider.method || (provider.adapter === 'tct' ? 'POST' : 'GET'),
+    contentType: provider.contentType || (provider.adapter === 'tct' ? 'form' : 'query'),
+    adapter: provider.adapter || 'generic',
+    status: provider.status || (provider.enabled === false ? 'disabled' : 'connected'),
+    lastMessage: provider.lastMessage || 'Da tai cau hinh',
+    vehicleCount: Number(provider.vehicleCount) || 0,
+    enabled: provider.enabled !== false,
+    color: provider.color || colors[index % colors.length]
+  };
+}
+
+function isBinhAnhProvider(provider) {
+  return provider.id === 'binhanh' || String(provider.url || '').includes('api.gps.binhanh.vn/api/gps/tracking');
+}
+
+function normalizeBinhAnhProvider(provider) {
+  const hpsDefault = DEFAULT_PROVIDERS.find(item => item.id === 'binhanh-hps');
+  const hplDefault = DEFAULT_PROVIDERS.find(item => item.id === 'binhanh-hpl');
+  const isHpl = provider.id === 'binhanh-hpl' ||
+    /hpl/i.test(provider.name || '') ||
+    provider.apiKey === hplDefault.apiKey ||
+    provider.customerCode === hplDefault.customerCode;
+  const selectedDefault = isHpl ? hplDefault : hpsDefault;
+
+  return {
+    ...provider,
+    id: selectedDefault.id,
+    name: selectedDefault.name,
+    url: selectedDefault.url,
+    apiKey: selectedDefault.apiKey,
+    customerCode: selectedDefault.customerCode,
+    adapter: selectedDefault.adapter,
+    method: selectedDefault.method,
+    contentType: selectedDefault.contentType,
+    status: provider.enabled ? (provider.status === 'disabled' ? 'connected' : provider.status) : 'disabled',
+    lastMessage: provider.lastMessage === 'HTTP 405' ? selectedDefault.lastMessage : provider.lastMessage,
+    color: selectedDefault.color
+  };
+}
+
+function mergeDefaultProviders(loadedProviders) {
+  let loaded = loadedProviders.map((provider, index) => {
+    const normalized = normalizeLoadedProvider(provider, index);
+    if (!isBinhAnhProvider(normalized)) return normalized;
+    return normalizeBinhAnhProvider(normalized);
+  });
+  loaded = Array.from(new Map(loaded.map(provider => [provider.id, provider])).values());
+  const defaultsById = new Map(DEFAULT_PROVIDERS.map(provider => [provider.id, provider]));
+  loaded.forEach(provider => {
+    const defaultProvider = defaultsById.get(provider.id);
+    if (!defaultProvider) return;
+    provider.url = provider.url || defaultProvider.url;
+    provider.apiKey = provider.apiKey || defaultProvider.apiKey;
+    provider.customerCode = provider.customerCode || defaultProvider.customerCode;
+    provider.adapter = provider.adapter || defaultProvider.adapter;
+    provider.method = provider.method || defaultProvider.method;
+    provider.contentType = provider.contentType || defaultProvider.contentType;
+    if (provider.adapter === 'binhanh') {
+      provider.method = 'POST';
+      provider.contentType = 'form';
+      provider.status = provider.enabled ? (provider.status === 'disabled' ? 'connected' : provider.status) : 'disabled';
+      provider.lastMessage = provider.lastMessage === 'HTTP 405' ? defaultProvider.lastMessage : provider.lastMessage;
+    }
+  });
+  const loadedIds = new Set(loaded.map(provider => provider.id));
+  DEFAULT_PROVIDERS.forEach(defaultProvider => {
+    if (!loadedIds.has(defaultProvider.id)) loaded.push({ ...defaultProvider });
+  });
+  return loaded;
+}
+
+function normalizeLoadedZone(zone, index) {
+  const colors = ['#58a6ff', '#bc8cff', '#f0883e', '#3fb950', '#d29922'];
+  const name = zone.name || 'Vung TCT';
+  return {
+    id: zone.id || `saved-zone-${Date.now()}-${index}`,
+    name,
+    aliases: Array.isArray(zone.aliases) && zone.aliases.length ? zone.aliases : [name],
+    lat: Number(zone.lat),
+    lng: Number(zone.lng),
+    radiusM: Number(zone.radiusM) || 500,
+    color: zone.color || colors[index % colors.length],
+    enabled: zone.enabled !== false,
+    showShortcut: zone.showShortcut !== false
+  };
+}
+
+function updateAlsConfigInputs() {
+  const latInput = document.getElementById('zone-lat');
+  const lngInput = document.getElementById('zone-lng');
+  const radiusInput = document.getElementById('zone-radius');
+  const warnInput = document.getElementById('zone-warn');
+  if (latInput) latInput.value = ALS_CENTER.lat;
+  if (lngInput) lngInput.value = ALS_CENTER.lng;
+  if (radiusInput) radiusInput.value = ZONE_RADIUS_M;
+  if (warnInput) warnInput.value = WARN_RADIUS_M;
+}
+
+function updateZaloRecipientFields() {
+  const typeInput = document.getElementById('zalo-recipient-type');
+  const valueInput = document.getElementById('zalo-recipient-value');
+  const label = document.getElementById('zalo-recipient-label');
+  const type = typeInput?.value || 'phone';
+  if (label) label.textContent = type === 'phone' ? 'Số điện thoại Zalo cá nhân' : 'Zalo User ID';
+  if (valueInput) valueInput.placeholder = type === 'phone' ? 'VD: 0912345678' : 'VD: 1234567890123456789';
+}
+
+function updateZaloConfigInputs() {
+  const tokenInput = document.getElementById('zalo-token');
+  const oaInput = document.getElementById('zalo-oa-id');
+  const typeInput = document.getElementById('zalo-recipient-type');
+  const valueInput = document.getElementById('zalo-recipient-value');
+  if (tokenInput) tokenInput.value = ZALO_CONFIG.accessToken || '';
+  if (oaInput) oaInput.value = ZALO_CONFIG.oaId || '';
+  if (typeInput) typeInput.value = ZALO_CONFIG.recipientType || 'phone';
+  if (valueInput) valueInput.value = ZALO_CONFIG.recipientValue || '';
+  updateZaloRecipientFields();
+}
+
+function readZaloConfigInputs() {
+  ZALO_CONFIG = {
+    accessToken: document.getElementById('zalo-token')?.value.trim() || '',
+    oaId: document.getElementById('zalo-oa-id')?.value.trim() || '',
+    recipientType: document.getElementById('zalo-recipient-type')?.value || 'phone',
+    recipientValue: document.getElementById('zalo-recipient-value')?.value.trim() || ''
+  };
+  return ZALO_CONFIG;
+}
+
+function applyLoadedConfig(payload) {
+  if (!payload || typeof payload !== 'object') return;
+
+  if (Array.isArray(payload.providers) && payload.providers.length) {
+    PROVIDERS = mergeDefaultProviders(payload.providers);
+  }
+
+  if (Array.isArray(payload.savedZones) && payload.savedZones.length) {
+    SAVED_TCT_ZONES = payload.savedZones
+      .map(normalizeLoadedZone)
+      .filter(zone => Number.isFinite(zone.lat) && Number.isFinite(zone.lng));
+  }
+
+  if (payload.zalo && typeof payload.zalo === 'object') {
+    ZALO_CONFIG = {
+      accessToken: payload.zalo.accessToken || payload.zalo.token || '',
+      oaId: payload.zalo.oaId || '',
+      recipientType: payload.zalo.recipientType === 'user_id' ? 'user_id' : 'phone',
+      recipientValue: payload.zalo.recipientValue || payload.zalo.phone || payload.zalo.userId || ''
+    };
+  }
+
+  const als = payload.als || {};
+  if (als.center && Number.isFinite(Number(als.center.lat)) && Number.isFinite(Number(als.center.lng))) {
+    ALS_CENTER = { lat: Number(als.center.lat), lng: Number(als.center.lng) };
+  }
+  if (Number.isFinite(Number(als.zoneRadiusM)) && Number(als.zoneRadiusM) > 0) {
+    ZONE_RADIUS_M = Number(als.zoneRadiusM);
+  }
+  if (Number.isFinite(Number(als.warnRadiusM)) && Number(als.warnRadiusM) > 0) {
+    WARN_RADIUS_M = Number(als.warnRadiusM);
+  }
+  updateAlsConfigInputs();
+  updateZaloConfigInputs();
+}
+
+async function loadConfigFromServer() {
+  try {
+    const response = await fetch('/api/config', { cache: 'no-store' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const payload = await response.json();
+    applyLoadedConfig(payload);
+    if (payload._storage?.type) {
+      addLog('info', 'DB', 'Da tai cau hinh', payload._storage.type === 'mysql' ? 'MySQL' : 'File cuc bo');
+    }
+  } catch (error) {
+    addLog('warning', 'DB', 'Chua tai duoc cau hinh da luu', error.message || String(error));
+  }
+}
+
+async function saveConfigToServer() {
+  try {
+    const response = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(getConfigSnapshot())
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const result = await response.json();
+    if (result.storage === 'file' && result.mysql_error) {
+      console.warn('MySQL unavailable, saved local file:', result.mysql_error);
+    }
+    return result;
+  } catch (error) {
+    console.warn('Save config failed:', error);
+    return { ok: false, error: error.message || String(error) };
+  }
+}
+
+// ============================================================
+// VEHICLE DATA
+// ============================================================
+function generateVehicles() {
+  const providers = ['Demo GPS'];
+  const colors = ['#8b949e'];
+  const plates = [
+    '30E-12345','29H-67890','51F-11223','43B-99887',
+    '15A-44556','92C-33221','62D-77665','34K-55443',
+    '72G-88001','10P-22334','47N-11009','63S-44567'
+  ];
+  return plates.map((plate, i) => {
+    const angle = (i / plates.length) * Math.PI * 2;
+    const dist = 200 + Math.random() * 5000; // meters from center
+    const provIdx = i % 3;
+    const lat = ALS_CENTER.lat + (Math.sin(angle) * dist) / 111320;
+    const lng = ALS_CENTER.lng + (Math.cos(angle) * dist) / (111320 * Math.cos(ALS_CENTER.lat * Math.PI / 180));
+    const point = latLngToMapPoint(lat, lng);
+    let zone = getZoneFromDistance(dist);
+    return {
+      id: 'v' + i, plate,
+      provider: providers[provIdx],
+      providerColor: colors[provIdx],
+      x: point.x, y: point.y,
+      lat,
+      lng,
+      distanceM: dist,
+      speed: Math.floor(20 + Math.random() * 60),
+      heading: Math.floor(Math.random() * 360),
+      zone,
+      driver: 'Lái xe ' + (i + 1),
+      phone: '09' + Math.floor(10000000 + Math.random() * 89999999),
+      address: 'Dữ liệu demo',
+      state: 'Demo',
+      lastUpdate: new Date()
+    };
+  });
+}
+
+let vehicles = [];
+
+function haversineMeters(a, b) {
+  const R = 6371000;
+  const toRad = deg => deg * Math.PI / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+}
+
+function latLngToMapPoint(lat, lng) {
+  const metersPerDegLat = 111320;
+  const metersPerDegLng = 111320 * Math.cos(ALS_CENTER.lat * Math.PI / 180);
+  const dx = (lng - ALS_CENTER.lng) * metersPerDegLng;
+  const dy = (ALS_CENTER.lat - lat) * metersPerDegLat;
+  return {
+    x: Math.max(20, Math.min(880, MAP_CENTER.x + dx * MAP_SCALE)),
+    y: Math.max(20, Math.min(480, MAP_CENTER.y + dy * MAP_SCALE))
+  };
+}
+
+function getZoneFromDistance(distanceM) {
+  if (distanceM <= ZONE_RADIUS_M) return 'in-zone';
+  if (distanceM <= WARN_RADIUS_M) return 'approaching';
+  return 'out-zone';
+}
+
+function normalizeText(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+function normalizePlateKey(value) {
+  return String(value || '').toUpperCase().replace(/[\s.-]/g, '');
+}
+
+async function loadPlannedTrips() {
+  try {
+    const response = await fetch('/api/gps/dashboard', { cache: 'no-store' });
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    const payload = await response.json();
+    applyDashboardPayload(payload, { updateVehicles: false });
+  } catch (error) {
+    addLog('warning', '⚠️', 'Không tải được kế hoạch vận chuyển', error.message);
+    plannedTripByPlate = new Map();
+  }
+}
+
+function providerColorForName(name) {
+  return PROVIDERS.find(provider => provider.name === name)?.color || '#58a6ff';
+}
+
+function normalizeDashboardVehicle(raw, index) {
+  const lat = Number(raw.lat);
+  const lng = Number(raw.lng);
+  const point = Number.isFinite(lat) && Number.isFinite(lng)
+    ? latLngToMapPoint(lat, lng)
+    : { x: MAP_CENTER.x, y: MAP_CENTER.y };
+  const distanceM = Number.isFinite(lat) && Number.isFinite(lng)
+    ? haversineMeters(ALS_CENTER, { lat, lng })
+    : Number.POSITIVE_INFINITY;
+  const provider = raw.provider || raw.providerName || 'GPS';
+  const plate = raw.plateNumber || raw.plate || raw.plateKey || 'UNKNOWN';
+  return {
+    id: raw.id || `cached-${normalizePlateKey(plate) || index}`,
+    plate,
+    provider,
+    providerColor: providerColorForName(provider),
+    x: point.x,
+    y: point.y,
+    lat,
+    lng,
+    distanceM,
+    speed: Number(raw.speed || 0),
+    heading: Number(raw.heading || 0),
+    zone: getZoneFromDistance(distanceM),
+    savedZone: getSavedTctZone(lat, lng),
+    driver: raw.driverName || raw.driver || 'Chưa có tên lái xe',
+    phone: raw.driverPhone || raw.phone || '',
+    address: raw.address || '',
+    state: raw.state || '',
+    totalKm: raw.totalKm || raw.odometer,
+    lastUpdate: raw.lastUpdate ? new Date(raw.lastUpdate) : new Date()
+  };
+}
+
+function applyDashboardPayload(payload, options = {}) {
+  plannedTripByPlate = new Map((payload.trips || [])
+    .filter(trip => trip.plateNumber)
+    .map(trip => [normalizePlateKey(trip.plateNumber), trip]));
+
+  if (options.updateVehicles === false) return 0;
+
+  const cachedVehicles = (payload.vehicles || [])
+    .map(normalizeDashboardVehicle)
+    .filter(vehicle => vehicle.plate && vehicle.plate !== 'UNKNOWN' && Number.isFinite(vehicle.lat) && Number.isFinite(vehicle.lng))
+    .map(applyPlannedTripInfo);
+  vehicles = cachedVehicles;
+  return cachedVehicles.length;
+}
+
+async function loadCachedGpsDashboard() {
+  try {
+    const response = await fetch('/api/gps/dashboard', { cache: 'no-store' });
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    const payload = await response.json();
+    const count = applyDashboardPayload(payload);
+    if (count) addLog('info', 'CACHE', 'Đã hiển thị nhanh GPS đã lưu', `${count} xe từ dữ liệu gần nhất`);
+    return count;
+  } catch (error) {
+    addLog('warning', '⚠️', 'Không tải được GPS đã lưu', error.message);
+    plannedTripByPlate = new Map();
+    return 0;
+  }
+}
+
+function applyPlannedTripInfo(vehicle) {
+  const trip = plannedTripByPlate.get(normalizePlateKey(vehicle.plate));
+  if (!trip) return { ...vehicle, plannedTrip: null };
+  return {
+    ...vehicle,
+    plannedTrip: trip,
+    plannedRouteCode: trip.routeCode || '',
+    plannedOrderCode: trip.orderCode || '',
+    plannedTargetName: trip.targetStop?.name || '',
+    plannedStatusLabel: trip.statusLabel || trip.status || ''
+  };
+}
+
+function findSavedTctZoneByAddress(address) {
+  const normalizedAddress = normalizeText(address);
+  if (!normalizedAddress) return null;
+
+  return SAVED_TCT_ZONES.find(item =>
+    item.enabled !== false &&
+    (item.aliases || [item.name]).some(alias => normalizedAddress.includes(normalizeText(alias)))
+  ) || null;
+}
+
+function getSavedTctZone(lat, lng) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  for (const zone of SAVED_TCT_ZONES) {
+    if (zone.enabled === false) continue;
+    const distanceM = haversineMeters({ lat: zone.lat, lng: zone.lng }, { lat, lng });
+    if (distanceM <= zone.radiusM) {
+      return { ...zone, distanceM };
+    }
+  }
+  return null;
+}
+
+function normalizeTctVehicle(raw, provider) {
+  const lat = Number(raw.Latitude);
+  const lng = Number(raw.Longitude);
+  const point = Number.isFinite(lat) && Number.isFinite(lng)
+    ? latLngToMapPoint(lat, lng)
+    : { x: MAP_CENTER.x, y: MAP_CENTER.y };
+  const distanceM = Number.isFinite(lat) && Number.isFinite(lng)
+    ? haversineMeters(ALS_CENTER, { lat, lng })
+    : Number.POSITIVE_INFINITY;
+  return {
+    id: provider.id + '-' + (raw.VehicleID || raw.VehiclePlate || raw.PrivateCode),
+    plate: raw.VehiclePlate || raw.PrivateCode || 'UNKNOWN',
+    provider: provider.name,
+    providerColor: provider.color,
+    x: point.x,
+    y: point.y,
+    lat,
+    lng,
+    distanceM,
+    speed: Number(raw.Speed || 0),
+    heading: Number(raw.Direction || 0),
+    zone: getZoneFromDistance(distanceM),
+    savedZone: getSavedTctZone(lat, lng) || findSavedTctZoneByAddress(raw.Address),
+    driver: raw.DriverName || 'Chưa có tên lái xe',
+    phone: raw.DriverLicense || '',
+    address: raw.Address || '',
+    state: raw.State,
+    totalKm: raw.TotalKm,
+    lastUpdate: raw.LocalTime ? new Date(raw.LocalTime) : new Date()
+  };
+}
+
+function normalizeGenericVehicle(raw, provider, index) {
+  const lat = Number(raw.lat ?? raw.latitude ?? raw.Latitude);
+  const lng = Number(raw.lng ?? raw.lon ?? raw.longitude ?? raw.Longitude);
+  const point = Number.isFinite(lat) && Number.isFinite(lng)
+    ? latLngToMapPoint(lat, lng)
+    : { x: MAP_CENTER.x, y: MAP_CENTER.y };
+  const distanceM = Number.isFinite(lat) && Number.isFinite(lng)
+    ? haversineMeters(ALS_CENTER, { lat, lng })
+    : Number.POSITIVE_INFINITY;
+
+  return {
+    id: provider.id + '-' + (raw.id || raw.vehicleId || raw.plate || index),
+    plate: raw.plate || raw.vehiclePlate || raw.VehiclePlate || 'UNKNOWN',
+    provider: provider.name,
+    providerColor: provider.color,
+    x: point.x,
+    y: point.y,
+    lat,
+    lng,
+    distanceM,
+    speed: Number(raw.speed || raw.Speed || 0),
+    heading: Number(raw.heading || raw.Direction || 0),
+    zone: getZoneFromDistance(distanceM),
+    savedZone: getSavedTctZone(lat, lng),
+    driver: raw.driver || raw.DriverName || 'Chưa có tên lái xe',
+    phone: raw.phone || raw.DriverPhone || '',
+    address: raw.address || raw.Address || '',
+    state: raw.state || raw.State || '',
+    lastUpdate: raw.localTime || raw.LocalTime ? new Date(raw.localTime || raw.LocalTime) : new Date()
+  };
+}
+
+function normalizeGoTrackVehicle(raw, provider) {
+  const lat = Number(raw.lat ?? raw.latitude);
+  const lng = Number(raw.lng ?? raw.lon ?? raw.longitude);
+  const point = Number.isFinite(lat) && Number.isFinite(lng)
+    ? latLngToMapPoint(lat, lng)
+    : { x: MAP_CENTER.x, y: MAP_CENTER.y };
+  const distanceM = Number.isFinite(lat) && Number.isFinite(lng)
+    ? haversineMeters(ALS_CENTER, { lat, lng })
+    : Number.POSITIVE_INFINITY;
+  const driver = raw.driver || raw.driverInfo || {};
+  const updatedSeconds = Number(raw.updatetimeUTC || raw.timestampUTC || 0);
+  const updatedAt = updatedSeconds > 0 ? new Date(updatedSeconds * 1000) : new Date();
+
+  return {
+    id: provider.id + '-' + (raw.id || raw.imei || raw.numberPlate || raw.name),
+    plate: raw.numberPlate || raw.name || 'UNKNOWN',
+    provider: provider.name,
+    providerColor: provider.color,
+    x: point.x,
+    y: point.y,
+    lat,
+    lng,
+    distanceM,
+    speed: Number(raw.speed || 0),
+    heading: Number(raw.direction || 0),
+    zone: getZoneFromDistance(distanceM),
+    savedZone: getSavedTctZone(lat, lng),
+    driver: driver.name || raw.driverName || 'Chưa có tên lái xe',
+    phone: driver.phone || raw.phoneDriver || '',
+    address: raw.address || raw.geofence || raw.govManagement || '',
+    state: raw.status || '',
+    totalKm: raw.odometer,
+    lastUpdate: updatedAt
+  };
+}
+
+function normalizeThanhLongVehicle(raw, provider, index) {
+  const lat = Number(raw.Lat ?? raw.lat);
+  const lng = Number(raw.Lng ?? raw.lng);
+  const point = Number.isFinite(lat) && Number.isFinite(lng)
+    ? latLngToMapPoint(lat, lng)
+    : { x: MAP_CENTER.x, y: MAP_CENTER.y };
+  const distanceM = Number.isFinite(lat) && Number.isFinite(lng)
+    ? haversineMeters(ALS_CENTER, { lat, lng })
+    : Number.POSITIVE_INFINITY;
+  const plate = raw.CarPlate || raw.plate || raw.vehiclePlate || 'UNKNOWN';
+  return {
+    id: provider.id + '-' + (raw.CarID || plate || index),
+    plate,
+    provider: provider.name,
+    providerColor: provider.color,
+    x: point.x,
+    y: point.y,
+    lat,
+    lng,
+    distanceM,
+    speed: Number(raw.Speed ?? raw.speed ?? 0),
+    heading: 0,
+    zone: getZoneFromDistance(distanceM),
+    savedZone: getSavedTctZone(lat, lng),
+    driver: raw.driver || raw.DriverName || 'Chưa có tên lái xe',
+    phone: raw.phone || raw.DriverPhone || '',
+    address: raw.Address || raw.address || '',
+    state: raw.NoGPS ? 'Mất GPS' : raw.NoGRPS ? 'Mất GPRS' : '',
+    totalKm: raw.totalKm || raw.odometer,
+    temperature: Number.isFinite(Number(raw.Temp)) ? Number(raw.Temp) - 100 : '',
+    lastUpdate: raw.Time ? new Date(raw.Time) : new Date()
+  };
+}
+
+function normalizeEtruckVehicle(raw, provider, index) {
+  const lat = Number(raw.lat ?? raw.latitude ?? raw.Latitude ?? raw.LAT ?? raw.y);
+  const lng = Number(raw.lng ?? raw.lon ?? raw.longitude ?? raw.Longitude ?? raw.LNG ?? raw.x);
+  const point = Number.isFinite(lat) && Number.isFinite(lng)
+    ? latLngToMapPoint(lat, lng)
+    : { x: MAP_CENTER.x, y: MAP_CENTER.y };
+  const distanceM = Number.isFinite(lat) && Number.isFinite(lng)
+    ? haversineMeters(ALS_CENTER, { lat, lng })
+    : Number.POSITIVE_INFINITY;
+  const plate = raw.reg || raw.REG || raw.plate || raw.vehiclePlate || raw.VehiclePlate || raw.numberPlate || raw.bks || raw.BKS || provider._lastReg || 'UNKNOWN';
+  return {
+    id: provider.id + '-' + (raw.id || raw.vehicleId || raw.imei || plate || index),
+    plate,
+    provider: provider.name,
+    providerColor: provider.color,
+    x: point.x,
+    y: point.y,
+    lat,
+    lng,
+    distanceM,
+    speed: Number(raw.speed ?? raw.Speed ?? raw.velocity ?? raw.v ?? 0),
+    heading: Number(raw.heading ?? raw.Direction ?? raw.direction ?? raw.course ?? 0),
+    zone: getZoneFromDistance(distanceM),
+    savedZone: getSavedTctZone(lat, lng),
+    driver: raw.driver || raw.DriverName || raw.driverName || 'Chưa có tên lái xe',
+    phone: raw.phone || raw.DriverPhone || raw.driverPhone || '',
+    address: raw.address || raw.Address || raw.location || raw.addr || '',
+    state: raw.state || raw.State || raw.status || '',
+    totalKm: raw.totalKm || raw.odometer,
+    lastUpdate: raw.lastUpdate || raw.gpsTime || raw.time || raw.updatedAt ? new Date(raw.lastUpdate || raw.gpsTime || raw.time || raw.updatedAt) : new Date()
+  };
+}
+
+function normalizeProviderResponse(provider, data) {
+  if (provider.adapter === 'tct') {
+    const rows = Array.isArray(data?.Vehicles) ? data.Vehicles : [];
+    return rows.map(row => normalizeTctVehicle(row, provider));
+  }
+
+  if (provider.adapter === 'gotrack') {
+    const rows = Array.isArray(data?.result) ? data.result : [];
+    return rows.map(row => normalizeGoTrackVehicle(row, provider));
+  }
+
+  if (provider.adapter === 'binhanh') {
+    const rows =
+      Array.isArray(data?.Vehicles) ? data.Vehicles :
+      Array.isArray(data?.vehicles) ? data.vehicles :
+      Array.isArray(data?.data) ? data.data :
+      Array.isArray(data?.result) ? data.result :
+      Array.isArray(data) ? data : [];
+    return rows.map(row => normalizeTctVehicle(row, provider));
+  }
+
+  if (provider.adapter === 'thanhlong') {
+    const rows =
+      Array.isArray(data?.vehicles) ? data.vehicles :
+      Array.isArray(data?.data) ? data.data :
+      Array.isArray(data?.result) ? data.result :
+      Array.isArray(data) ? data : [];
+    return rows.map((row, index) => normalizeThanhLongVehicle(row, provider, index));
+  }
+
+  if (provider.adapter === 'etruck') {
+    if (data?.status === 'error' || data?.error || data?.code) {
+      provider.lastMessage = data?.code || data?.message || data?.error || 'eTruck không trả dữ liệu xe';
+      return [];
+    }
+    const rows =
+      Array.isArray(data?.data) ? data.data :
+      Array.isArray(data?.result) ? data.result :
+      Array.isArray(data?.vehicles) ? data.vehicles :
+      Array.isArray(data?.list) ? data.list :
+      Array.isArray(data) ? data :
+      data && typeof data === 'object' ? [data] : [];
+    return rows.map((row, index) => normalizeEtruckVehicle(row, provider, index));
+  }
+
+  const rows =
+    Array.isArray(data) ? data :
+    Array.isArray(data?.vehicles) ? data.vehicles :
+    Array.isArray(data?.Vehicles) ? data.Vehicles :
+    Array.isArray(data?.data) ? data.data : [];
+  return rows.map((row, index) => normalizeGenericVehicle(row, provider, index));
+}
+
+function buildProviderRequest(provider) {
+  const params = new URLSearchParams();
+  if (provider.adapter === 'etruck') {
+    if (provider.customerCode) params.set('usr', provider.customerCode);
+    if (provider.apiKey) params.set('token', provider.apiKey);
+    params.set('act', 'loc');
+    if (provider._lastReg || provider.vehiclePlates) params.set('reg', provider._lastReg || provider.vehiclePlates);
+  } else if (provider.adapter === 'gotrack') {
+    if (provider.apiKey) params.set('apikey', provider.apiKey);
+    if (provider.vehiclePlates) params.set('vehiclePlates', provider.vehiclePlates);
+  } else if (provider.adapter === 'binhanh') {
+    if (provider.apiKey) params.set('Key', provider.apiKey);
+    if (provider.customerCode) params.set('customerCode', provider.customerCode);
+  } else if (provider.adapter === 'thanhlong') {
+    if (provider.customerCode) params.set('username', provider.customerCode);
+    if (provider.apiKey) params.set('password', provider.apiKey);
+  } else {
+    if (provider.apiKey) params.set('Key', provider.apiKey);
+    if (provider.customerCode) params.set('customerCode', provider.customerCode);
+  }
+
+  if (provider.method === 'GET') {
+    const separator = provider.url.includes('?') ? '&' : '?';
+    return {
+      url: params.toString() ? provider.url + separator + params.toString() : provider.url,
+      options: { method: 'GET' }
+    };
+  }
+
+  return {
+    url: provider.url,
+    options: {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+      body: params.toString()
+    }
+  };
+}
+
+function etruckRegsForProvider(provider) {
+  const configured = String(provider.vehiclePlates || '')
+    .split(/[,\n;]/)
+    .map(item => item.trim())
+    .filter(Boolean);
+  if (configured.length) return configured;
+  return Array.from(plannedTripByPlate.values())
+    .map(trip => String(trip.plateNumber || '').trim())
+    .filter(Boolean);
+}
+
+async function mapWithConcurrency(items, limit, mapper) {
+  const results = [];
+  let nextIndex = 0;
+  const workerCount = Math.max(1, Math.min(limit, items.length));
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex++;
+      results[index] = await mapper(items[index], index);
+    }
+  }));
+  return results;
+}
+
+async function fetchEtruckProvider(provider) {
+  const regs = etruckRegsForProvider(provider);
+  const requestRegs = regs.length ? regs : [''];
+  const timeoutMs = Math.max(3000, Number(document.getElementById('api-timeout')?.value || 10) * 1000);
+  const results = await mapWithConcurrency(requestRegs, 6, async (reg) => {
+    const requestProvider = { ...provider, _lastReg: reg };
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const request = buildProviderRequest(requestProvider);
+      const response = await fetch(request.url, { ...request.options, signal: controller.signal });
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      const data = await response.json();
+      const normalized = normalizeProviderResponse(requestProvider, data).map(v => ({ ...v, plate: v.plate === 'UNKNOWN' && reg ? reg : v.plate }));
+      return { rows: normalized, ok: normalized.length > 0, message: requestProvider.lastMessage };
+    } catch (error) {
+      return { rows: [], ok: false, message: error.name === 'AbortError' ? 'Timeout API' : error.message };
+    } finally {
+      clearTimeout(timeout);
+    }
+  });
+  delete provider._lastReg;
+  const rows = results.flatMap(result => result.rows);
+  const okCount = results.filter(result => result.ok).length;
+  provider.vehicleCount = rows.length;
+  provider.status = rows.length || okCount ? 'connected' : 'error';
+  provider.lastMessage = rows.length ? `OK - ${rows.length} xe` : results.find(result => result.message)?.message || 'Không có dữ liệu';
+  return rows;
+}
+
+async function fetchProvider(provider) {
+  if (!provider.enabled || !provider.url) return [];
+  if (provider.adapter === 'etruck') return fetchEtruckProvider(provider);
+
+  const timeoutMs = Math.max(3000, Number(document.getElementById('api-timeout')?.value || 10) * 1000);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const request = buildProviderRequest(provider);
+    const response = await fetch(request.url, { ...request.options, signal: controller.signal });
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+
+    const data = await response.json();
+    const normalized = normalizeProviderResponse(provider, data);
+    provider.vehicleCount = normalized.length;
+    provider.status = normalized.length || data?.MessageResult === 'Success' ? 'connected' : 'error';
+    provider.lastMessage = data?.MessageResult || `OK - ${normalized.length} xe`;
+    return normalized;
+  } catch (error) {
+    provider.status = 'error';
+    provider.lastMessage = error.name === 'AbortError' ? 'Timeout API' : error.message;
+    addLog('warning', '⚠️', `API lỗi: ${provider.name}`, provider.lastMessage);
+    return [];
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function refreshVehicles(reason = 'auto') {
+  const enabledProviders = PROVIDERS.filter(p => p.enabled && p.url);
+  const [results] = await Promise.all([
+    Promise.all(enabledProviders.map(fetchProvider)),
+    loadPlannedTrips()
+  ]);
+  const liveVehicles = results.flat().map(applyPlannedTripInfo);
+
+  vehicles = liveVehicles;
+  syncGpsVehiclesToTransport(liveVehicles);
+
+  detectZoneEvents();
+  renderMap();
+  renderVehicleList(currentFilter);
+  renderProviders();
+  updateProviderStats();
+
+  const total = liveVehicles.length;
+  const statusType = total ? 'success' : 'warning';
+  const detail = total ? `${total} xe từ ${enabledProviders.length} API` : 'Không có dữ liệu mới, giữ dữ liệu hiện tại';
+  addLog(statusType, '📡', reason === 'manual' ? 'Làm mới API thủ công' : 'Polling API GPS', detail);
+}
+
+async function syncGpsVehiclesToTransport(liveVehicles) {
+  const payload = liveVehicles
+    .filter(v => Number.isFinite(v.lat) && Number.isFinite(v.lng))
+    .map(v => ({
+      id: v.id,
+      plateNumber: v.plate,
+      provider: v.provider,
+      lat: v.lat,
+      lng: v.lng,
+      speed: v.speed,
+      heading: v.heading,
+      address: v.address,
+      driverName: v.driver,
+      driverPhone: v.phone,
+      lastUpdate: v.lastUpdate
+    }));
+  if (!payload.length) return;
+  try {
+    await fetch('/api/gps/vehicles', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ vehicles: payload })
+    });
+  } catch (error) {
+    addLog('warning', '⚠️', 'Không đồng bộ được GPS sang vận chuyển', error.message);
+  }
+}
+
+function visibleVehicles() {
+  return plannedOnly ? vehicles.filter(v => v.plannedTrip) : vehicles;
+}
+
+// ============================================================
+// RENDER VEHICLES ON MAP
+// ============================================================
+function renderMap(options = {}) {
+  if (!initLeafletMap()) {
+    updateStats();
+    return;
+  }
+
+  vehicleLayer.clearLayers();
+  vehicleMarkers.clear();
+
+  visibleVehicles().forEach(v => {
+    if (!Number.isFinite(v.lat) || !Number.isFinite(v.lng)) return;
+    const color = v.zone === 'in-zone' ? '#3fb950' : v.zone === 'approaching' ? '#d29922' : '#8b949e';
+    const marker = L.marker([v.lat, v.lng], {
+      icon: L.divIcon({
+        className: '',
+        html: buildVehicleMarkerHtml(v, color),
+        iconSize: [68, 22],
+        iconAnchor: [10, 11],
+        popupAnchor: [0, -14]
+      })
+    }).bindPopup(buildVehiclePopup(v));
+
+    marker.addTo(vehicleLayer);
+    vehicleMarkers.set(v.id, marker);
+  });
+
+  fitMapToLiveData(Boolean(options.fitAll));
+
+  updateStats();
+}
+
+function getMapFitLatLngs() {
+  const points = [[ALS_CENTER.lat, ALS_CENTER.lng]];
+  visibleVehicles().forEach(v => {
+    if (Number.isFinite(v.lat) && Number.isFinite(v.lng)) {
+      points.push([v.lat, v.lng]);
+    }
+  });
+  return points;
+}
+
+function fitMapToLiveData(force = false) {
+  if (!liveMap || !window.L) return;
+  const applyFit = () => {
+    liveMap.invalidateSize();
+    if (!(force || !mapCenteredOnce)) return;
+
+    const points = getMapFitLatLngs();
+    if (points.length > 1) {
+      liveMap.fitBounds(L.latLngBounds(points), {
+        paddingTopLeft: [70, 70],
+        paddingBottomRight: [70, 70],
+        maxZoom: 15,
+        animate: false
+      });
+    } else {
+      liveMap.setView([ALS_CENTER.lat, ALS_CENTER.lng], DEFAULT_MAP_ZOOM, { animate: false });
+    }
+    mapCenteredOnce = true;
+  };
+  applyFit();
+  setTimeout(applyFit, 120);
+}
+
+function centerMapOnAls(force = false) {
+  if (!liveMap || !window.L) return;
+  const applyCenter = () => {
+    liveMap.invalidateSize();
+    if (force || !mapCenteredOnce) {
+      liveMap.setView([ALS_CENTER.lat, ALS_CENTER.lng], DEFAULT_MAP_ZOOM, { animate: false });
+      mapCenteredOnce = true;
+    }
+  };
+  applyCenter();
+  setTimeout(applyCenter, 120);
+}
+
+function initLeafletMap() {
+  const el = document.getElementById('map-canvas');
+  if (!window.L) {
+    el.innerHTML = '<div style="padding:24px;color:#e6edf3">Không tải được thư viện bản đồ. Kiểm tra kết nối internet để tải Leaflet/OpenStreetMap.</div>';
+    return false;
+  }
+
+  if (liveMap) {
+    renderZoneLayers();
+    setTimeout(() => liveMap.invalidateSize(), 0);
+    return true;
+  }
+
+  liveMap = L.map('map-canvas', {
+    zoomControl: false,
+    attributionControl: true
+  }).setView([ALS_CENTER.lat, ALS_CENTER.lng], DEFAULT_MAP_ZOOM);
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(liveMap);
+
+  liveMap.on('contextmenu', e => addSavedZoneFromMap(e.latlng));
+
+  zoneLayer = L.layerGroup().addTo(liveMap);
+  vehicleLayer = L.layerGroup().addTo(liveMap);
+  renderZoneLayers();
+  setTimeout(() => liveMap.invalidateSize(), 120);
+  return true;
+}
+
+function renderZoneLayers() {
+  if (!zoneLayer || !window.L) return;
+  zoneLayer.clearLayers();
+  L.circle([ALS_CENTER.lat, ALS_CENTER.lng], {
+    radius: WARN_RADIUS_M,
+    color: '#d29922',
+    weight: 1,
+    dashArray: '6 6',
+    fillColor: '#d29922',
+    fillOpacity: 0.04
+  }).addTo(zoneLayer);
+  L.circle([ALS_CENTER.lat, ALS_CENTER.lng], {
+    radius: ZONE_RADIUS_M,
+    color: '#3fb950',
+    weight: 2,
+    fillColor: '#3fb950',
+    fillOpacity: 0.12
+  }).addTo(zoneLayer).bindTooltip('ALSE - vùng ALS', {
+    permanent: true,
+    direction: 'center',
+    className: 'als-zone-label'
+  });
+
+  SAVED_TCT_ZONES.filter(zone => zone.enabled !== false).forEach(zone => {
+    L.circle([zone.lat, zone.lng], {
+      radius: zone.radiusM,
+      color: zone.color,
+      weight: 2,
+      dashArray: '8 5',
+      fillColor: zone.color,
+      fillOpacity: 0.08
+    }).addTo(zoneLayer).bindTooltip(zone.name, {
+      permanent: true,
+      direction: 'center',
+      className: 'saved-zone-label'
+    });
+  });
+  renderZoneShortcuts();
+}
+
+function renderZoneShortcuts() {
+  const el = document.getElementById('zone-shortcuts');
+  if (!el) return;
+
+  const savedZoneButtons = SAVED_TCT_ZONES
+    .filter(zone => zone.enabled !== false && zone.showShortcut !== false)
+    .map(zone => `
+      <button
+        class="zone-chip"
+        style="border-color:${escapeAttr(zone.color)}"
+        title="${escapeAttr(zone.name)}"
+        onclick="focusZone('${escapeAttr(zone.id)}')"
+      >${escapeHtml(zone.name)}</button>
+    `)
+    .join('');
+
+  el.innerHTML = `
+    <button class="zone-chip" onclick="focusZone('als')">ALS</button>
+    ${savedZoneButtons}
+  `;
+}
+
+function getVehicleHeadingDegrees(v) {
+  const heading = Number(v.heading || 0);
+  if (!Number.isFinite(heading)) return 0;
+  return heading >= 0 && heading <= 7 ? heading * 45 : heading;
+}
+
+function buildVehicleMarkerHtml(v, color) {
+  const plate = String(v.plate || '').replace(/[<>&"']/g, '');
+  const heading = getVehicleHeadingDegrees(v);
+  return `
+    <div class="vehicle-marker-wrap">
+      <div class="vehicle-car" style="background:${color};color:${color};transform:rotate(${heading}deg)">
+        <span class="vehicle-light"></span>
+        <span class="vehicle-wheel back"></span>
+        <span class="vehicle-wheel front"></span>
+      </div>
+      <div class="vehicle-plate-label">${plate}</div>
+    </div>`;
+}
+
+function buildVehiclePopup(v) {
+  const distance = Number.isFinite(v.distanceM)
+    ? (v.distanceM >= 1000 ? (v.distanceM / 1000).toFixed(1) + ' km' : Math.round(v.distanceM) + ' m')
+    : '--';
+  const status =
+    v.zone === 'in-zone' ? 'Trong vùng ALS' :
+    v.zone === 'approaching' ? 'Đang tiếp cận' : 'Ngoài vùng';
+  return `
+    <div style="min-width:190px">
+      <div style="font-weight:700;font-size:13px;margin-bottom:4px">${v.plate}</div>
+      <div style="color:#8b949e">Nhà xe: ${v.provider}</div>
+      <div style="color:#8b949e">Tốc độ: ${v.speed} km/h</div>
+      <div style="color:#8b949e">Cách vùng: ${distance}</div>
+      <div style="color:#8b949e">Trạng thái: ${status}</div>
+      ${v.plannedTrip ? `<div style="margin-top:6px;color:#3fb950">Tuyến KH: ${v.plannedRouteCode || '--'}${v.plannedTargetName ? ` → ${v.plannedTargetName}` : ''}</div>` : ''}
+      ${v.savedZone ? `<div style="color:#58a6ff">Vùng TCT: ${v.savedZone.name}</div>` : ''}
+      ${v.address ? `<div style="margin-top:6px">${v.address}</div>` : ''}
+    </div>`;
+}
+
+function showVehicleTooltip(v) {
+  if (!liveMap || !Number.isFinite(v.lat) || !Number.isFinite(v.lng)) return;
+  liveMap.setView([v.lat, v.lng], Math.max(liveMap.getZoom(), 15));
+  const marker = vehicleMarkers.get(v.id);
+  if (marker) marker.openPopup();
+}
+
+// ============================================================
+// SIDEBAR VEHICLE LIST
+// ============================================================
+function renderVehicleList(filter = '') {
+  const list = document.getElementById('vehicle-list');
+  list.innerHTML = '';
+  currentFilter = filter;
+  const sourceVehicles = visibleVehicles();
+  const filtered = filter ? sourceVehicles.filter(v =>
+    v.plate.toUpperCase().includes(filter.toUpperCase()) ||
+    v.provider.toLowerCase().includes(filter.toLowerCase()) ||
+    (v.plannedRouteCode || '').toLowerCase().includes(filter.toLowerCase()) ||
+    (v.address || '').toLowerCase().includes(filter.toLowerCase())
+  ) : sourceVehicles;
+
+  if (!filtered.length) {
+    list.innerHTML = '<div style="padding:14px;color:var(--text2);font-size:12px">Không có xe phù hợp.</div>';
+    return;
+  }
+
+  filtered.forEach(v => {
+    const badgeClass = v.zone === 'in-zone' ? 'badge-green' : v.zone === 'approaching' ? 'badge-yellow' : 'badge-gray';
+    const badgeText = v.zone === 'in-zone' ? 'Trong vùng' : v.zone === 'approaching' ? 'Tiếp cận' : 'Ngoài vùng';
+    const distance = Number.isFinite(v.distanceM)
+      ? (v.distanceM >= 1000 ? (v.distanceM / 1000).toFixed(1) + ' km' : Math.round(v.distanceM) + ' m')
+      : '--';
+    const updated = v.lastUpdate instanceof Date && !Number.isNaN(v.lastUpdate)
+      ? v.lastUpdate.toLocaleTimeString('vi-VN')
+      : '--';
+    const div = document.createElement('div');
+    div.className = 'vehicle-item ' + v.zone;
+    div.innerHTML = `
+      <div class="vi-header">
+        <span class="vi-plate">${v.plate}</span>
+        <span class="vi-badge ${badgeClass}">${badgeText}</span>
+      </div>
+      <div class="vi-info">
+        <span>🏢 ${v.provider}</span>
+        <span>🚀 ${v.speed} km/h</span>
+        <span>📍 ${distance}</span>
+        <span>🕒 ${updated}</span>
+      </div>`;
+    if (v.address) {
+      div.innerHTML += `<div style="color:var(--text2);font-size:11px;margin-top:6px;line-height:1.35">${v.address}</div>`;
+    }
+    if (v.savedZone) {
+      div.innerHTML += `<div style="color:#58a6ff;font-size:11px;margin-top:5px">📌 Vùng TCT: ${v.savedZone.name}</div>`;
+    }
+    if (v.plannedTrip) {
+      div.innerHTML += `<div style="color:#3fb950;font-size:11px;margin-top:5px">🧭 Tuyến KH: ${v.plannedRouteCode || '--'}${v.plannedTargetName ? ` → ${v.plannedTargetName}` : ''}</div>`;
+    }
+    div.onclick = () => showVehicleTooltip(v);
+    list.appendChild(div);
+  });
+}
+
+function filterVehicles(q) {
+  const center = liveMap ? liveMap.getCenter() : null;
+  const zoom = liveMap ? liveMap.getZoom() : null;
+  renderVehicleList(q);
+  if (liveMap && center && Number.isFinite(zoom)) {
+    liveMap.invalidateSize();
+    liveMap.setView(center, zoom, { animate: false });
+  }
+}
+
+function togglePlannedOnly(checked) {
+  plannedOnly = Boolean(checked);
+  renderMap({ fitAll: plannedOnly });
+  renderVehicleList(currentFilter);
+  updateStats();
+  if (!plannedOnly) {
+    centerMapOnAls(true);
+  }
+}
+
+function resetVehicleSearch() {
+  currentFilter = '';
+  const input = document.getElementById('vehicle-search');
+  if (input) {
+    input.value = '';
+    input.defaultValue = '';
+  }
+}
+
+function syncPlannedOnlyCheckbox() {
+  const checkbox = document.getElementById('planned-only');
+  if (checkbox) checkbox.checked = plannedOnly;
+}
+
+// ============================================================
+// STATS
+// ============================================================
+function updateStats() {
+  const displayedVehicles = visibleVehicles();
+  const inZone = displayedVehicles.filter(v => v.zone === 'in-zone').length;
+  const approaching = displayedVehicles.filter(v => v.zone === 'approaching').length;
+  document.getElementById('stat-in').textContent = inZone;
+  document.getElementById('stat-approach').textContent = approaching;
+  document.getElementById('stat-sent').textContent = zaloSentCount;
+  renderSavedZoneStats(displayedVehicles);
+  updateProviderStats();
+}
+
+function renderSavedZoneStats(displayedVehicles) {
+  const el = document.getElementById('saved-zone-stat-cards');
+  if (!el) return;
+
+  const visibleZones = SAVED_TCT_ZONES.filter(zone => zone.enabled !== false && zone.showShortcut !== false);
+  el.innerHTML = visibleZones.map(zone => {
+    const count = displayedVehicles.filter(v => v.savedZone?.id === zone.id).length;
+    return `
+      <div class="stat-card">
+        <div class="stat-label">Trong ${escapeHtml(zone.name)}</div>
+        <div class="stat-value" style="color:${escapeAttr(zone.color)}">${count}</div>
+        <div class="stat-sub">xe trong vùng</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function updateProviderStats() {
+  const connected = PROVIDERS.filter(p => p.enabled && p.status === 'connected').length;
+  const active = PROVIDERS.filter(p => p.enabled).length;
+  document.getElementById('stat-providers').textContent = connected;
+  const sub = document.querySelector('#stat-providers + .stat-sub');
+  if (sub) sub.textContent = `${connected}/${active} API đang hoạt động`;
+}
+
+function detectZoneEvents() {
+  visibleVehicles().forEach(v => {
+    const prevZone = lastZoneByVehicleId[v.id];
+    if (prevZone && prevZone !== 'in-zone' && v.zone === 'in-zone') {
+      addLog('success', '✅', `Xe vào vùng ALS: ${v.plate}`, `${v.provider} - ${v.speed} km/h`);
+      setTimeout(() => triggerZaloNotification(v, 'enter'), 500);
+    } else if (prevZone === 'out-zone' && v.zone === 'approaching') {
+      addLog('warning', '⚠️', `Xe tiếp cận 2km: ${v.plate}`, `${v.provider} - ${Math.round(v.distanceM)} m`);
+    }
+    lastZoneByVehicleId[v.id] = v.zone;
+  });
+}
+
+// ============================================================
+// LOG
+// ============================================================
+function addLog(type, icon, title, detail) {
+  logItems.unshift({ type, icon, title, detail, time: new Date() });
+  renderLog();
+}
+
+function renderLog() {
+  const panel = document.getElementById('log-panel');
+  panel.innerHTML = logItems.slice(0, 50).map(l => `
+    <div class="log-item ${l.type}">
+      <div class="log-icon">${l.icon}</div>
+      <div>
+        <div>${l.title}</div>
+        <div style="color:var(--text2);font-size:11px">${l.detail}</div>
+        <div class="log-time">${l.time.toLocaleTimeString('vi-VN')}</div>
+      </div>
+    </div>`).join('');
+}
+
+// ============================================================
+// ZALO NOTIFICATION
+// ============================================================
+function buildMessage(template, v, eta = null) {
+  const now = new Date().toLocaleString('vi-VN');
+  return template
+    .replace(/{PLATE}/g, v.plate)
+    .replace(/{PROVIDER}/g, v.provider)
+    .replace(/{TIME}/g, now)
+    .replace(/{SPEED}/g, v.speed)
+    .replace(/{ETA}/g, eta || '~5');
+}
+
+function getZaloRecipient() {
+  readZaloConfigInputs();
+  const type = ZALO_CONFIG.recipientType === 'user_id' ? 'user_id' : 'phone';
+  const value = ZALO_CONFIG.recipientValue.trim();
+  return {
+    type,
+    value,
+    label: type === 'phone' ? 'SĐT Zalo cá nhân' : 'Zalo User ID'
+  };
+}
+
+function buildZaloPayload(msg) {
+  const recipient = getZaloRecipient();
+  return {
+    oa_id: ZALO_CONFIG.oaId,
+    recipient: recipient.type === 'phone'
+      ? { phone: recipient.value }
+      : { user_id: recipient.value },
+    message: { text: msg }
+  };
+}
+
+function triggerZaloNotification(v, type) {
+  const cooldownKey = v.id + '_' + type;
+  const now = Date.now();
+  if (notifyCooldowns[cooldownKey] && now - notifyCooldowns[cooldownKey] < 30 * 60 * 1000) return;
+
+  const enterTmpl = document.getElementById('msg-enter')?.value ||
+    '🚛 Xe {PLATE} ({PROVIDER}) đã vào vùng ALS Đông Hà Nội lúc {TIME}';
+  const approachTmpl = document.getElementById('msg-approach')?.value ||
+    '⚠️ Xe {PLATE} ({PROVIDER}) đang tiếp cận ALS – {ETA} phút';
+
+  const msg = type === 'enter' ? buildMessage(enterTmpl, v) : buildMessage(approachTmpl, v);
+  const recipient = getZaloRecipient();
+  if (!recipient.value) {
+    addLog('warning', '💬', 'Chưa cấu hình người nhận Zalo', 'Nhập số điện thoại Zalo cá nhân hoặc Zalo User ID trong tab Zalo OA');
+    openInitialTabFromUrl();
+    switchMainTab('zalo', document.querySelectorAll('.main .tabs .tab')[3]);
+    return;
+  }
+  pendingNotification = { v, type, msg, recipient, payload: buildZaloPayload(msg) };
+  document.getElementById('modal-recipient').textContent = `${recipient.label}: ${recipient.value}`;
+  document.getElementById('modal-msg').textContent = msg;
+  document.getElementById('modal').classList.add('open');
+}
+
+function confirmSend() {
+  if (!pendingNotification) return;
+  const { v, type, msg, recipient } = pendingNotification;
+  // In production: POST to Zalo OA API
+  // fetch('https://openapi.zalo.me/v2.0/oa/message', { method:'POST', headers:{access_token: ZALO_CONFIG.accessToken}, body: JSON.stringify(pendingNotification.payload) })
+  notifyCooldowns[v.id + '_' + type] = Date.now();
+  zaloSentCount++;
+  addLog('success', '💬', `Zalo gửi: ${v.plate}`, `${recipient.label}: ${recipient.value} - ${msg.substring(0, 80)}…`);
+  document.getElementById('stat-sent').textContent = zaloSentCount;
+  closeModal();
+  pendingNotification = null;
+}
+
+function closeModal() { document.getElementById('modal').classList.remove('open'); }
+
+function testZalo() {
+  const v = vehicles[0];
+  if (!v) {
+    alert('Chưa có dữ liệu xe để gửi test.');
+    return;
+  }
+  triggerZaloNotification(v, 'enter');
+}
+
+function escapeAttr(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function providerViewModel(provider) {
+  return { ...provider, ...(providerDrafts[provider.id] || {}) };
+}
+
+function updateProviderDraft(id, field, value) {
+  providerDrafts[id] = { ...(providerDrafts[id] || {}), [field]: value };
+}
+
+// ============================================================
+// PROVIDERS LIST RENDER
+// ============================================================
+function renderProviders() {
+  const el = document.getElementById('providers-list');
+  if (!el) return;
+  el.innerHTML = PROVIDERS.map(provider => {
+    const p = providerViewModel(provider);
+    return `
+    <div class="provider-card">
+      <div class="provider-header">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="width:10px;height:10px;border-radius:50%;background:${p.color}"></div>
+          <span class="provider-name">${escapeHtml(p.name)}</span>
+        </div>
+        <div class="provider-actions">
+          <span class="provider-status ${p.status !== 'connected' ? 'err' : ''}">
+            ${p.enabled ? (p.status === 'connected' ? '● Kết nối' : '✕ Lỗi') : '○ Tắt'}
+          </span>
+          <div class="toggle ${p.enabled ? 'on' : ''}" title="Bật/tắt API" onclick="toggleProvider('${p.id}')"></div>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group" style="margin:0 0 8px">
+          <label class="form-label">Tên nhà xe</label>
+          <input class="form-input" id="provider-name-${p.id}" value="${escapeAttr(p.name)}" oninput="updateProviderDraft('${p.id}','name',this.value)" style="font-size:11px">
+        </div>
+        <div class="form-group" style="margin:0 0 8px">
+          <label class="form-label">Adapter</label>
+          <select class="form-input" id="provider-adapter-${p.id}" onchange="updateProviderDraft('${p.id}','adapter',this.value)" style="font-size:11px">
+            <option value="tct" ${p.adapter === 'tct' ? 'selected' : ''}>TCT / Vehicles</option>
+            <option value="gotrack" ${p.adapter === 'gotrack' ? 'selected' : ''}>GoTrack / tracking-vehicles</option>
+            <option value="binhanh" ${p.adapter === 'binhanh' ? 'selected' : ''}>Bình Anh / gps tracking</option>
+            <option value="thanhlong" ${p.adapter === 'thanhlong' ? 'selected' : ''}>Thành Long / SmartLog</option>
+            <option value="etruck" ${p.adapter === 'etruck' ? 'selected' : ''}>eTruck / loc</option>
+            <option value="generic" ${p.adapter === 'generic' ? 'selected' : ''}>Generic JSON</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group" style="margin:0 0 8px">
+        <label class="form-label">API Endpoint</label>
+        <input class="form-input" id="provider-url-${p.id}" value="${escapeAttr(p.url)}" oninput="updateProviderDraft('${p.id}','url',this.value)" style="font-size:11px">
+      </div>
+      <div class="form-row">
+        <div class="form-group" style="margin:0 0 8px">
+          <label class="form-label">API Key / Token</label>
+          <input class="form-input secret-input" id="provider-key-${p.id}" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore value="${escapeAttr(p.apiKey)}" oninput="updateProviderDraft('${p.id}','apiKey',this.value)" style="font-size:11px">
+        </div>
+        <div class="form-group" style="margin:0 0 8px">
+          <label class="form-label">Customer Code</label>
+          <input class="form-input" id="provider-customer-${p.id}" value="${escapeAttr(p.customerCode || '')}" oninput="updateProviderDraft('${p.id}','customerCode',this.value)" style="font-size:11px">
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:11px;color:var(--text2)">📦 ${p.vehicleCount} xe - ${p.lastMessage || ''}</span>
+        <div style="display:flex;gap:8px">
+          <button class="btn" style="font-size:11px" onclick="testProvider('${p.id}')">Test kết nối</button>
+          <button class="btn primary" style="font-size:11px" onclick="saveProvider('${p.id}')">Lưu</button>
+          <button class="btn" style="font-size:11px;color:var(--red);border-color:rgba(248,81,73,.45)" onclick="deleteProvider('${p.id}')">Xóa</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function saveProvider(id) {
+  const p = PROVIDERS.find(x => x.id === id);
+  if (!p) return;
+  p.name = document.getElementById(`provider-name-${id}`)?.value.trim() || p.name;
+  p.url = document.getElementById(`provider-url-${id}`)?.value.trim() || '';
+  p.apiKey = document.getElementById(`provider-key-${id}`)?.value.trim() || '';
+  p.customerCode = document.getElementById(`provider-customer-${id}`)?.value.trim() || '';
+  p.adapter = document.getElementById(`provider-adapter-${id}`)?.value || p.adapter;
+  p.method = ['tct', 'binhanh', 'etruck', 'thanhlong'].includes(p.adapter) ? 'POST' : 'GET';
+  p.enabled = Boolean(p.url);
+  p.status = p.enabled ? 'connected' : 'disabled';
+  p.lastMessage = p.enabled ? 'Đã lưu cấu hình' : 'Chưa có endpoint';
+  delete providerDrafts[id];
+  renderProviders();
+  updateProviderStats();
+  addLog('info', '💾', `Đã lưu nhà xe: ${p.name}`, p.url || 'Chưa có endpoint');
+  saveConfigToServer();
+}
+
+function toggleProvider(id) {
+  const p = PROVIDERS.find(x => x.id === id);
+  if (!p) return;
+  p.enabled = !p.enabled;
+  p.status = p.enabled ? 'connected' : 'disabled';
+  p.lastMessage = p.enabled ? 'Đã bật API' : 'Đã tắt API';
+  renderProviders();
+  updateProviderStats();
+  addLog('info', p.enabled ? '🟢' : '⚪', `${p.enabled ? 'Bật' : 'Tắt'} API: ${p.name}`, p.url || '');
+  saveConfigToServer();
+  refreshVehicles('manual');
+}
+
+function deleteProvider(id) {
+  const p = PROVIDERS.find(x => x.id === id);
+  if (!p) return;
+  if (!confirm(`Xóa API "${p.name}" khỏi danh sách nhà xe?`)) return;
+  PROVIDERS = PROVIDERS.filter(x => x.id !== id);
+  delete providerDrafts[id];
+  vehicles = vehicles.filter(v => v.provider !== p.name);
+  renderProviders();
+  updateProviderStats();
+  renderMap();
+  renderVehicleList(currentFilter);
+  addLog('warning', '🗑', `Đã xóa API: ${p.name}`, p.url || '');
+  saveConfigToServer();
+}
+
+async function testProvider(id) {
+  saveProvider(id);
+  const p = PROVIDERS.find(x => x.id === id);
+  const rows = await fetchProvider(p);
+  renderProviders();
+  updateProviderStats();
+  if (rows.length) {
+    addLog('success', '🔌', `Test API: ${p.name}`, `${rows.length} xe - ${p.lastMessage}`);
+    alert(`✅ Kết nối ${p.name} thành công!\nSố xe: ${rows.length}\nPhản hồi: ${p.lastMessage}`);
+  } else {
+    addLog('warning', '🔌', `Test API: ${p.name}`, p.lastMessage || 'Không có xe');
+    alert(`⚠️ ${p.name} chưa có dữ liệu xe.\nPhản hồi: ${p.lastMessage || 'Không có xe'}`);
+  }
+}
+
+function addProvider() {
+  const id = 'provider-' + Date.now();
+  const colors = ['#f0883e', '#3fb950', '#d29922', '#f85149', '#58a6ff'];
+  PROVIDERS.push({
+    id,
+    name: 'Nhà xe mới',
+    url: '',
+    apiKey: '',
+    customerCode: '',
+    method: 'GET',
+    contentType: 'json',
+    adapter: 'generic',
+    status: 'disabled',
+    lastMessage: 'Nhập endpoint và key để kích hoạt',
+    vehicleCount: 0,
+    enabled: false,
+    color: colors[PROVIDERS.length % colors.length]
+  });
+  renderProviders();
+  saveConfigToServer();
+}
+
+function renderSavedZoneConfig() {
+  const el = document.getElementById('saved-zones-config');
+  if (!el) return;
+  el.innerHTML = SAVED_TCT_ZONES.map(zone => `
+    <div class="provider-card">
+      <div class="provider-header">
+        <div style="display:flex;align-items:center;gap:8px">
+          <div style="width:10px;height:10px;border-radius:50%;background:${zone.color}"></div>
+          <span class="provider-name">${zone.name}</span>
+        </div>
+        <div class="provider-actions">
+          <div class="zone-action">
+            <span class="provider-status ${zone.enabled === false ? 'err' : ''}">
+              ${zone.enabled === false ? '○ Tắt vùng' : '● Bật vùng'}
+            </span>
+            <div class="toggle ${zone.enabled !== false ? 'on' : ''}" title="Bật/tắt vùng địa lý" onclick="toggleSavedZone('${zone.id}')"></div>
+          </div>
+          <div class="zone-action">
+            <span class="provider-status ${zone.showShortcut === false ? 'err' : ''}">
+              ${zone.showShortcut === false ? '○ Ẩn nút map' : '● Nút map'}
+            </span>
+            <div class="toggle ${zone.showShortcut !== false ? 'on' : ''}" title="Hiển thị nút vùng trên map" onclick="toggleZoneShortcut('${zone.id}')"></div>
+          </div>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group" style="margin:0 0 8px">
+          <label class="form-label">Tên vùng</label>
+          <input class="form-input" id="saved-zone-name-${zone.id}" value="${zone.name}" style="font-size:11px">
+        </div>
+        <div class="form-group" style="margin:0 0 8px">
+          <label class="form-label">Màu</label>
+          <input class="form-input" id="saved-zone-color-${zone.id}" type="color" value="${zone.color}" style="height:34px;padding:4px">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group" style="margin:0 0 8px">
+          <label class="form-label">Vĩ độ tâm (Lat)</label>
+          <input class="form-input" id="saved-zone-lat-${zone.id}" value="${zone.lat}" style="font-size:11px">
+        </div>
+        <div class="form-group" style="margin:0 0 8px">
+          <label class="form-label">Kinh độ tâm (Lng)</label>
+          <input class="form-input" id="saved-zone-lng-${zone.id}" value="${zone.lng}" style="font-size:11px">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group" style="margin:0 0 8px">
+          <label class="form-label">Bán kính vùng (m)</label>
+          <input class="form-input" id="saved-zone-radius-${zone.id}" value="${zone.radiusM}" style="font-size:11px">
+        </div>
+        <div class="form-group" style="margin:0 0 8px">
+          <label class="form-label">Tên nhận diện TCT</label>
+          <input class="form-input" id="saved-zone-aliases-${zone.id}" value="${(zone.aliases || []).join(', ')}" style="font-size:11px">
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn" style="font-size:11px" onclick="focusZone('${zone.id}')">Xem vùng</button>
+        <button class="btn" style="font-size:11px;color:var(--red);border-color:rgba(248,81,73,.45)" onclick="deleteSavedZone('${zone.id}')">Xóa</button>
+      </div>
+    </div>`).join('');
+}
+
+function saveSavedZones() {
+  for (const zone of SAVED_TCT_ZONES) {
+    const name = document.getElementById(`saved-zone-name-${zone.id}`)?.value.trim();
+    const lat = Number(document.getElementById(`saved-zone-lat-${zone.id}`)?.value);
+    const lng = Number(document.getElementById(`saved-zone-lng-${zone.id}`)?.value);
+    const radiusM = Number(document.getElementById(`saved-zone-radius-${zone.id}`)?.value);
+    const color = document.getElementById(`saved-zone-color-${zone.id}`)?.value.trim();
+    const aliases = document.getElementById(`saved-zone-aliases-${zone.id}`)?.value
+      .split(',')
+      .map(v => v.trim())
+      .filter(Boolean);
+
+    if (!name || !Number.isFinite(lat) || !Number.isFinite(lng) || !Number.isFinite(radiusM) || radiusM <= 0) {
+      alert(`⚠️ Vùng ${zone.name} có dữ liệu chưa hợp lệ.`);
+      return;
+    }
+
+    zone.name = name;
+    zone.lat = lat;
+    zone.lng = lng;
+    zone.radiusM = radiusM;
+    zone.color = color || zone.color;
+    zone.aliases = aliases.length ? aliases : [name];
+    zone.enabled = zone.enabled !== false;
+    zone.showShortcut = zone.showShortcut !== false;
+  }
+
+  vehicles = vehicles.map(v => ({ ...v, savedZone: getSavedTctZone(v.lat, v.lng) }));
+  renderZoneLayers();
+  renderZoneShortcuts();
+  renderMap();
+  renderVehicleList(currentFilter);
+  renderSavedZoneConfig();
+  addLog('info', '📌', 'Đã lưu vùng TCT', `${SAVED_TCT_ZONES.length} vùng đã cập nhật`);
+  alert('✅ Đã lưu cấu hình các vùng TCT!');
+  saveConfigToServer();
+}
+
+function addSavedZone(options = {}) {
+  const id = 'saved-zone-' + Date.now();
+  const colors = ['#58a6ff', '#bc8cff', '#f0883e', '#3fb950', '#d29922'];
+  const name = options.name || 'Vùng TCT mới';
+  SAVED_TCT_ZONES.push({
+    id,
+    name,
+    aliases: [name],
+    lat: Number.isFinite(options.lat) ? options.lat : ALS_CENTER.lat,
+    lng: Number.isFinite(options.lng) ? options.lng : ALS_CENTER.lng,
+    radiusM: options.radiusM || 500,
+    color: colors[SAVED_TCT_ZONES.length % colors.length],
+    enabled: true,
+    showShortcut: true
+  });
+  renderSavedZoneConfig();
+  renderZoneLayers();
+  renderZoneShortcuts();
+  renderMap();
+  addLog('info', '➕', `Đã thêm vùng TCT: ${name}`, `${SAVED_TCT_ZONES[SAVED_TCT_ZONES.length - 1].lat}, ${SAVED_TCT_ZONES[SAVED_TCT_ZONES.length - 1].lng}`);
+  saveConfigToServer();
+}
+
+function addSavedZoneFromMap(latlng) {
+  const name = prompt('Tên vùng TCT mới:', '');
+  if (!name || !name.trim()) return;
+  addSavedZone({
+    name: name.trim(),
+    lat: Number(latlng.lat.toFixed(6)),
+    lng: Number(latlng.lng.toFixed(6)),
+    radiusM: 500
+  });
+  focusZone(SAVED_TCT_ZONES[SAVED_TCT_ZONES.length - 1].id);
+}
+
+function toggleSavedZone(id) {
+  const zone = SAVED_TCT_ZONES.find(z => z.id === id);
+  if (!zone) return;
+  zone.enabled = !(zone.enabled !== false);
+  vehicles = vehicles.map(v => ({ ...v, savedZone: getSavedTctZone(v.lat, v.lng) }));
+  renderSavedZoneConfig();
+  renderZoneLayers();
+  renderZoneShortcuts();
+  renderMap();
+  renderVehicleList(currentFilter);
+  addLog('info', zone.enabled ? '🟢' : '⚪', `${zone.enabled ? 'Bật' : 'Tắt'} vùng TCT: ${zone.name}`, '');
+  saveConfigToServer();
+}
+
+function toggleZoneShortcut(id) {
+  const zone = SAVED_TCT_ZONES.find(z => z.id === id);
+  if (!zone) return;
+  zone.showShortcut = !(zone.showShortcut !== false);
+  renderSavedZoneConfig();
+  renderZoneShortcuts();
+  updateStats();
+  addLog('info', zone.showShortcut ? '🗺' : '○', `${zone.showShortcut ? 'Hiện' : 'Ẩn'} nút map: ${zone.name}`, '');
+  saveConfigToServer();
+}
+
+function deleteSavedZone(id) {
+  const zone = SAVED_TCT_ZONES.find(z => z.id === id);
+  if (!zone) return;
+  if (!confirm(`Xóa vùng TCT "${zone.name}"?`)) return;
+  SAVED_TCT_ZONES = SAVED_TCT_ZONES.filter(z => z.id !== id);
+  vehicles = vehicles.map(v => ({ ...v, savedZone: getSavedTctZone(v.lat, v.lng) }));
+  renderSavedZoneConfig();
+  renderZoneLayers();
+  renderZoneShortcuts();
+  renderMap();
+  renderVehicleList(currentFilter);
+  addLog('warning', '🗑', `Đã xóa vùng TCT: ${zone.name}`, '');
+  saveConfigToServer();
+}
+
+// ============================================================
+// API POLLING
+// ============================================================
+function startPolling() {
+  const intervalSec = Math.max(10, Number(document.getElementById('poll-interval')?.value || 30));
+  if (pollTimer) clearInterval(pollTimer);
+  if (providerLogTimer) clearInterval(providerLogTimer);
+
+  pollTimer = setInterval(() => refreshVehicles('auto'), intervalSec * 1000);
+  providerLogTimer = setInterval(() => {
+    PROVIDERS.filter(p => p.enabled).forEach(p => {
+      addLog(
+        p.status === 'connected' ? 'info' : 'warning',
+        '📡',
+        `API ${p.name}`,
+        `${p.vehicleCount} xe - ${p.lastMessage || p.status}`
+      );
+    });
+  }, Math.max(30000, intervalSec * 1000));
+}
+
+// ============================================================
+// UI HELPERS
+// ============================================================
+function switchSideTab(id, el) {
+  document.querySelectorAll('.sidebar .tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('st-vehicles').style.display = id === 'vehicles' ? 'flex' : 'none';
+  document.getElementById('st-log').style.display = id === 'log' ? 'flex' : 'none';
+}
+
+function switchMainTab(id, el) {
+  document.querySelectorAll('.main .tabs .tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  ['map','config','zones','zalo'].forEach(t => {
+    const el2 = document.getElementById('mt-' + t);
+    if (el2) el2.style.display = t === id ? 'flex' : 'none';
+  });
+  if (id === 'config') {
+    renderProviders();
+  }
+  if (id === 'zones') {
+    renderSavedZoneConfig();
+  }
+  if (id === 'map' && liveMap) setTimeout(() => liveMap.invalidateSize(), 0);
+}
+
+function toggleSetting(id) {
+  document.getElementById(id).classList.toggle('on');
+}
+
+function openConfig() { switchMainTab('config', document.querySelectorAll('.main .tabs .tab')[1]); }
+function openZones() { switchMainTab('zones', document.querySelectorAll('.main .tabs .tab')[2]); }
+
+function openInitialTabFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const tab = params.get('tab');
+  if (tab === 'config') openConfig();
+  if (tab === 'zones') openZones();
+  if (tab === 'zalo') switchMainTab('zalo', document.querySelectorAll('.main .tabs .tab')[3]);
+  if ((tab === 'zones') || (tab === 'config' && params.get('section') === 'zones')) {
+    openZones();
+    setTimeout(() => document.getElementById('saved-zone-config-section')?.scrollIntoView({ block: 'start' }), 100);
+  }
+}
+
+function manualRefresh() {
+  refreshVehicles('manual');
+}
+
+function saveZone() {
+  const lat = Number(document.getElementById('zone-lat')?.value);
+  const lng = Number(document.getElementById('zone-lng')?.value);
+  const radius = Number(document.getElementById('zone-radius')?.value);
+  const warn = Number(document.getElementById('zone-warn')?.value);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || !Number.isFinite(radius) || !Number.isFinite(warn)) {
+    alert('⚠️ Vui lòng nhập tọa độ và bán kính hợp lệ.');
+    return;
+  }
+
+  ALS_CENTER = { lat, lng };
+  ZONE_RADIUS_M = radius;
+  WARN_RADIUS_M = warn;
+  mapCenteredOnce = false;
+  vehicles = vehicles.map(v => {
+    if (!Number.isFinite(v.lat) || !Number.isFinite(v.lng)) return v;
+    const point = latLngToMapPoint(v.lat, v.lng);
+    const distanceM = haversineMeters(ALS_CENTER, { lat: v.lat, lng: v.lng });
+    return { ...v, ...point, distanceM, zone: getZoneFromDistance(distanceM), savedZone: getSavedTctZone(v.lat, v.lng) };
+  });
+  renderMap({ fitAll: true });
+  renderVehicleList(currentFilter);
+  addLog('info', '📍', 'Đã lưu vùng ALS', `${lat}, ${lng} - bán kính ${radius}m`);
+  alert('✅ Đã lưu cấu hình vùng địa lý ALS!');
+  saveConfigToServer();
+}
+function saveZaloConfig() {
+  const config = readZaloConfigInputs();
+  if (!config.recipientValue) {
+    alert('⚠️ Vui lòng nhập số điện thoại Zalo cá nhân hoặc Zalo User ID nhận tin.');
+    return;
+  }
+  saveConfigToServer();
+  alert('✅ Đã lưu cấu hình Zalo OA!');
+}
+
+function mapZoom(f) {
+  if (!liveMap) return;
+  if (f > 1) liveMap.zoomIn();
+  else liveMap.zoomOut();
+}
+function mapReset() {
+  if (!liveMap) return;
+  centerMapOnAls(true);
+}
+
+function focusZone(id) {
+  if (!liveMap) return;
+  if (id === 'als') {
+    centerMapOnAls(true);
+    return;
+  }
+  const zone = SAVED_TCT_ZONES.find(z => z.id === id && z.enabled !== false);
+  if (!zone) return;
+  liveMap.invalidateSize();
+  liveMap.setView([zone.lat, zone.lng], 14, { animate: true });
+}
+
+// ============================================================
+// INIT
+// ============================================================
+async function initApp() {
+  resetVehicleSearch();
+  syncPlannedOnlyCheckbox();
+  setTimeout(resetVehicleSearch, 0);
+  setTimeout(() => {
+    resetVehicleSearch();
+    syncPlannedOnlyCheckbox();
+    renderVehicleList('');
+  }, 250);
+  renderMap();
+  renderVehicleList();
+  renderLog();
+  addLog('info', 'START', 'He thong khoi dong', 'Dang tai cau hinh va ket noi API GPS');
+  await loadConfigFromServer();
+  renderProviders();
+  renderSavedZoneConfig();
+  renderZoneShortcuts();
+  updateStats();
+  updateProviderStats();
+  await loadCachedGpsDashboard();
+  renderMap();
+  renderVehicleList(currentFilter);
+  updateStats();
+  renderZoneLayers();
+  mapCenteredOnce = false;
+  centerMapOnAls(true);
+  openInitialTabFromUrl();
+  refreshVehicles('manual');
+  startPolling();
+}
+
+window.addEventListener('pageshow', () => {
+  resetVehicleSearch();
+  renderVehicleList('');
+});
+
+initApp();
+</script>
+</body>
+</html>
